@@ -50,6 +50,22 @@ float Fraction = 1 / 3;
 
 long ChanID = 0;
 
+float MinPosX = -1;
+float MaxPosX = 3.8;
+
+float MinPosY = -1;
+float MaxPosY = 3.8;
+
+float MinPosZ = -1;
+float MaxPosZ = 3.8;
+
+float MinPosGonio = -6;
+float MaxPosGonio = 5;
+
+float RefractiveIndexAir = 1.00027798; //https://refractiveindex.info/?shelf=other&book=air&page=Ciddor
+float RefractiveIndexFiberCore = 0;    //Equation https://en.wikipedia.org/wiki/Fresnel_equations#:~:text=%5Bedit%5D-,Normal%20incidence,-%5Bedit%5D
+
+
 std::vector<float> Optimum = {0,0,0,0};
 
 
@@ -253,7 +269,7 @@ float CFiberAlignProjectVSDlg::ReadNumberOfPointsValue() {
 
 float CFiberAlignProjectVSDlg::StepperCorrection(long AxisIndex, float StepperMotorShouldBePosition) {
 
-	float CorrectedPosition;
+	float CorrectedPosition = 0;
 	std::vector<float> XCorrectionValues = { -0.0087, 1.0318, -0.0403};
 	std::vector<float> YCorrectionValues = { -0.0072, 1.0388, -0.0100};
 	std::vector<float> ZCorrectionValues = { -0.0400, 1.1898, -0.1001};
@@ -724,18 +740,6 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 	float ZeroOffsetZ = 2.45;
 	float ZeroOffsetGonio = 7.55;
 
-	float MinPosX = -1;
-	float MaxPosX = 3.8;
-
-	float MinPosY = -1;
-	float MaxPosY = 3.8;
-
-	float MinPosZ = -1;
-	float MaxPosZ = 3.8;
-
-	float MinPosGonio = -6;
-	float MaxPosGonio = 5;
-
 	long PiezoControlMode = 4;
 	float PiezoMiddlePosition = 10;
 	long VoltMicronOutputMode = 2;
@@ -911,26 +915,71 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 
 
 //Start Coupling Efficiency Measurement Button
-void CFiberAlignProjectVSDlg::ClickCommandbutton4()
+bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 {
 	int RelativOrAbsolute = RelativeAndAbsoluteSelector.GetCurSel();
-	if (RelativOrAbsolute == 0)
-	{
-		int Axis = AxisSelectorDropDownMenu.GetCurSel();
-		float Max = 100;
-		float LowerLim = ReadLowerLimitValue();
-		float UpperLim = ReadUpperLimitValue();
-		long Numb = ReadNumberOfPointsValue();
+	int Axis = AxisSelectorDropDownMenu.GetCurSel();
+	float Max = 100;
+	float LowerLim = ReadLowerLimitValue();
+	float UpperLim = ReadUpperLimitValue();
+	long Numb = ReadNumberOfPointsValue();
+	float AllowedLowerLim = 0;
+	float AllowedUpperLim = 0;
+
+	//Check if the limits are within the allowed limits set by the stages physical limitations
+	switch (Axis) {
+	case 0: {
+		AllowedLowerLim = 0;
+		AllowedUpperLim = MaxPosX;
+		break;
+	}
+	case 1: {
+		AllowedLowerLim = 0;
+		AllowedUpperLim = MaxPosY;
+		break;
+	}
+	case 2: {
+		AllowedLowerLim = 0;
+		AllowedUpperLim = MaxPosZ;
+		break;
+	}
+	case 3: {
+		AllowedLowerLim = -5;
+		AllowedUpperLim = MaxPosGonio;
+		break;
+	}
+	default: {}
+	}
+
+	//Differentiate between relative and absolute measurements
+	if (RelativOrAbsolute == 0) 
+	{//Absolute Measurement
+		
+
+		if (LowerLim <= AllowedLowerLim || UpperLim >= AllowedUpperLim)
+			{
+			DebugNum1.put_Caption(L"Limits exceed limits");
+			return false;
+			}
+
 
 		MeasurementRun(Axis, LowerLim, UpperLim, Numb, Max);
 
-	} else {
+	} else { 
+	//Relative Measurement, only possible if a optimum finding run was successfull 
 
+		if ((Optimum[Axis] + LowerLim) <= AllowedLowerLim || (Optimum[Axis] + UpperLim) >= AllowedUpperLim)
+		{
+			DebugNum1.put_Caption(L"Limits exceed limits");
+			return false;
+		}
+
+		MeasurementRun(Axis, Optimum[Axis] + LowerLim, Optimum[Axis] + UpperLim, Numb, Max);
 
 	}
 
 
-
+	return true;
 
 }
 
