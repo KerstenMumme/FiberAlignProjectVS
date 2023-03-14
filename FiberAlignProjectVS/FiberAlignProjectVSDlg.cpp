@@ -59,12 +59,12 @@ float MaxPosY = 3.8;
 float MinPosZ = -1;
 float MaxPosZ = 3.8;
 
-float MinPosGonio = -6;
-float MaxPosGonio = 5;
+float MinPosGonio = -7;
+float MaxPosGonio = 6;
 
 float RefractiveIndexAir = 1.00027798; //https://refractiveindex.info/?shelf=other&book=air&page=Ciddor
-float RefractiveIndexFiberCore = 0;    //Equation https://en.wikipedia.org/wiki/Fresnel_equations#:~:text=%5Bedit%5D-,Normal%20incidence,-%5Bedit%5D
-
+float RefractiveIndexFiberCore = 1.5;    //Equation https://en.wikipedia.org/wiki/Fresnel_equations#:~:text=%5Bedit%5D-,Normal%20incidence,-%5Bedit%5D
+float Transmissivity = 1 - pow( abs((RefractiveIndexFiberCore - RefractiveIndexAir)/(RefractiveIndexFiberCore + RefractiveIndexAir)), 2);
 
 std::vector<float> Optimum = {0,0,0,0};
 
@@ -114,20 +114,46 @@ LPCTSTR CFiberAlignProjectVSDlg::StringToLPCTSTR(std::string ToConvertString) {
 
 //Convert measured Voltage into Optical Power, as calibrated beforhand
 float MeaurementArmVoltageToPower(float Voltage) {
-	float OpticalPower;
+	float OpticalPowerFromVoltage;
+	float OpticalPowerBeamSplitterCorrected;
+	float TrueOpticalPower;
 
-	OpticalPower = Voltage;
+	OpticalPowerFromVoltage = Voltage * 0.1963 + 0.0968;
 
-	return OpticalPower;
+	OpticalPowerBeamSplitterCorrected = 1.12889 * OpticalPowerFromVoltage - 0.0156953; //Correction for the unequal splitting from the beamsplitter
+
+	TrueOpticalPower = OpticalPowerBeamSplitterCorrected / Transmissivity; //Corrected for Backreflections on the Fiber to Air medium interface
+	return TrueOpticalPower;
 }
 
 //Convert measured Voltage into Optical Power, as calibrated beforhand
 float ReferenceArmVoltageToPower(float Voltage) {
 	float OpticalPower;
+	float TrueOpticalPower;
+	OpticalPower = Voltage * 0.1988 + 0.129;
 
-	OpticalPower = Voltage;
+	TrueOpticalPower = 920 * OpticalPower / 910; //Correction for the lense, as measured.
 
-	return OpticalPower;
+	return TrueOpticalPower;
+}
+
+//Converts the Angle from the Goniometer to the length of the actuator 
+float GonioAngleToLength(float Angle) {
+	float Length;
+
+	Length = 0.661641 * Angle + 0.0986658; //From Matlab fit 
+
+	return Length;
+}
+
+
+//Converts the Length of the actuator to the angle of the goniometer
+float GonioLengthToAngle(float Length) {
+	float Angle;
+
+	Angle = 1.51053 * Length - 0.149123; //From Matlab fit 
+
+	return Angle;
 }
 
 
@@ -341,7 +367,7 @@ float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Posi
 	}
 	case 3: {
 
-		StepperGonio.SetAbsMovePos(ChanID, Position);
+		StepperGonio.SetAbsMovePos(ChanID,GonioAngleToLength(Position));
 		StepperGonio.MoveAbsolute(ChanID, true);
 
 		break;
@@ -851,10 +877,7 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton8()
 void CFiberAlignProjectVSDlg::ClickCommandbutton7()
 {
 
-
-
-
-
+	
 
 }
 
@@ -944,8 +967,8 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 		break;
 	}
 	case 3: {
-		AllowedLowerLim = -5;
-		AllowedUpperLim = MaxPosGonio;
+		AllowedLowerLim = -9;
+		AllowedUpperLim = 9;
 		break;
 	}
 	default: {}
