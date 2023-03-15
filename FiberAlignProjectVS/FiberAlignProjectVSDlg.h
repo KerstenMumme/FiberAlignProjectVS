@@ -112,6 +112,6 @@ public:
 	void ClickCommandbutton8();
 	void ClickCommandbutton2();
 	bool ClickCommandbutton4();
-	std::vector<float> MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, float OldMaximum);
+	std::vector<float> MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, float OldMaximum, int Itterator);
 	CComboBox RelativeAndAbsoluteSelector;
 };

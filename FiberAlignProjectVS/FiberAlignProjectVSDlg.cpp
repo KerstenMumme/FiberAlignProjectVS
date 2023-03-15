@@ -21,7 +21,7 @@
 #include <boost/algorithm/string.hpp>
 #include <algorithm>
 #include <numeric>
-
+#include <direct.h> 
 
 
 
@@ -873,18 +873,6 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton8()
 
 
 
-//TestButton
-void CFiberAlignProjectVSDlg::ClickCommandbutton7()
-{
-
-	
-
-}
-
-
-
-
-
 
 //Manual Voltage Measurement Button
 void CFiberAlignProjectVSDlg::ClickCommandbutton2()
@@ -893,12 +881,48 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton2()
 }
 
 
+//TestButton
+void CFiberAlignProjectVSDlg::ClickCommandbutton7() {
 
-std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, float OldMaximum) {
+
+}
+
+
+
+
+//Go from point to point, Measuring the Coupling Efficiency at every point, then evaluate where the maximum point is and returning the Lower and Upper Plateau edge, the middle and highest coupling efficiency.
+std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, float OldMaximum, int Itterator) {
 
 	std::vector<float> PositionList = NumberListFunction(LowerLimit, UpperLimit, NumberOfPoints);
 	std::vector<float> VoltageList(NumberOfPoints);
 	std::vector<float> TempVoltList(3);
+	std::string AxisString;
+
+	//Add the Axis to the File Name
+	switch (AxisIndex) {
+	case 0: {
+		AxisString = "X";
+
+		break;
+	}
+	case 1: {
+		AxisString = "Y";
+
+		break;
+	}
+	case 2: {
+		AxisString = "Z";
+
+		break;
+	}
+	case 3: {
+		AxisString = "Gonio";
+			
+		break;
+	}
+	default: {}
+	}
+
 
 	MoveActuatorToPosition(AxisIndex, PositionList[0]);
 	Sleep(4000);
@@ -910,11 +934,20 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 		VoltageList[i] = TempVoltList[2];
 
 	}
+	
 
+	std::string FolderStartString = "OutputVectors//Itteration";
+	std::string FolderAppendage = "Hehe";
+	std::string FolderAppendedString = FolderStartString + FolderAppendage;
+	const char* FolderDirChar = FolderAppendedString.c_str();
+	_mkdir(FolderDirChar);
 
-	SaveToFile(PositionList,"OutputVectors", "PositionList");
-	SaveToFile(VoltageList, "OutputVectors", "VoltageList");
+	std::string FilePosition = "Position";
+	std::string FileEfficiency = "Efficiency";
 
+	SaveToFile(PositionList, FolderDirChar, (FilePosition + AxisString).c_str());
+	SaveToFile(VoltageList, FolderDirChar, (FileEfficiency + AxisString).c_str());
+	
 
 
 	auto Maximum = std::max_element(std::begin(VoltageList), std::end(VoltageList));
@@ -986,7 +1019,7 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 			}
 
 
-		MeasurementRun(Axis, LowerLim, UpperLim, Numb, Max);
+		MeasurementRun(Axis, LowerLim, UpperLim, Numb, Max, 1);
 
 	} else { 
 	//Relative Measurement, only possible if a optimum finding run was successfull 
@@ -997,7 +1030,7 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 			return false;
 		}
 
-		MeasurementRun(Axis, Optimum[Axis] + LowerLim, Optimum[Axis] + UpperLim, Numb, Max);
+		MeasurementRun(Axis, Optimum[Axis] + LowerLim, Optimum[Axis] + UpperLim, Numb, Max, 1);
 
 	}
 
