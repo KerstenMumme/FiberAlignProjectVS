@@ -937,7 +937,7 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 	
 
 	std::string FolderStartString = "OutputVectors//Itteration";
-	std::string FolderAppendage = "Hehe";
+	std::string FolderAppendage = std::to_string(Itterator);
 	std::string FolderAppendedString = FolderStartString + FolderAppendage;
 	const char* FolderDirChar = FolderAppendedString.c_str();
 	_mkdir(FolderDirChar);
@@ -945,8 +945,8 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 	std::string FilePosition = "Position";
 	std::string FileEfficiency = "Efficiency";
 
-	SaveToFile(PositionList, FolderDirChar, (FilePosition + AxisString).c_str());
-	SaveToFile(VoltageList, FolderDirChar, (FileEfficiency + AxisString).c_str());
+	SaveToFile(PositionList, FolderDirChar, FilePosition + AxisString);
+	SaveToFile(VoltageList, FolderDirChar, FileEfficiency + AxisString);
 	
 
 
