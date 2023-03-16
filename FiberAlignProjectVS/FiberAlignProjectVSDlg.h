@@ -88,7 +88,7 @@ public:
 //	afx_msg void OnEnChangeEdit3();
 	DECLARE_EVENTSINK_MAP()
 		LPCTSTR StringToLPCTSTR(std::string ToConvertString);
-	void ClickCommandbutton1();
+	bool ClickCommandbutton1();
 	std::vector<float> GetVoltageValues(float Range);
 	CLABEL11 LowerLimitUnitLabel;
 	CLABEL12 UpperLimitUnitLabel;
@@ -114,4 +114,5 @@ public:
 	bool ClickCommandbutton4();
 	std::vector<float> MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, float OldMaximum, int Itterator);
 	CComboBox RelativeAndAbsoluteSelector;
+	void ClickCommandbutton3();
 };

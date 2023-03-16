@@ -45,12 +45,13 @@ BYTE DataBits = 8;
 CSerialPort2::StopBits StopBits = CSerialPort2::StopBits::OneStopBit;
 CSerialPort2::FlowControl FlowControl = CSerialPort2::FlowControl::NoFlowControl;
 
-float Range = 6.144;
-float Fraction = 1 / 3;
+				
+float Range = 6.144; //Range of the AD converter, 2^16 values are linearly divided from -Range to Range
+float Fraction = 1 / 3; //Used for detecting the Plateaus edges
 
 long ChanID = 0;
 
-float MinPosX = -1;
+float MinPosX = -1; //Making sure the stage does not damadge itself
 float MaxPosX = 3.8;
 
 float MinPosY = -1;
@@ -61,12 +62,47 @@ float MaxPosZ = 3.8;
 
 float MinPosGonio = -7;
 float MaxPosGonio = 6;
-
+										//Determine Backreflections from Fiber to Air interface
 float RefractiveIndexAir = 1.00027798; //https://refractiveindex.info/?shelf=other&book=air&page=Ciddor
 float RefractiveIndexFiberCore = 1.5;    //Equation https://en.wikipedia.org/wiki/Fresnel_equations#:~:text=%5Bedit%5D-,Normal%20incidence,-%5Bedit%5D
 float Transmissivity = 1 - pow( abs((RefractiveIndexFiberCore - RefractiveIndexAir)/(RefractiveIndexFiberCore + RefractiveIndexAir)), 2);
 
-std::vector<float> Optimum = {0,0,0,0};
+std::vector<float> Optimum = {0,0,0,0}; //Used for the return to Optimum button
+
+float XStepperPosition = 1; //Used to keep tracks of the stepper positions
+float YStepperPosition = 1;
+float ZStepperPosition = 1;
+float GonioStepperPosition = 0;
+
+float XPiezoPosition = 0;
+float YPiezoPosition = 0;
+float ZPiezoPosition = 0;
+
+bool Error = false; //Used to stop programm in case of a limit error or simular situations
+
+int MaxNumberOfItteration = 20; //Used to stop programm should too many itterations have happend
+int MinNumberOfItteration = 5; //The Homing process should at least do this many itterations bevor the condition StopLoop comes into play
+
+std::vector<float> PeakCouplingEfficiencyX(MaxNumberOfItteration); //Used to track the coupling efficiency of the axis over time
+std::vector<float> PeakCouplingEfficiencyY(MaxNumberOfItteration);
+std::vector<float> PeakCouplingEfficiencyZ(MaxNumberOfItteration);
+std::vector<float> PeakCouplingEfficiencyGonio(MaxNumberOfItteration);
+
+std::vector<float> XLowerLimit(MaxNumberOfItteration); //Track The Lower and Upper Limits per axes 
+std::vector<float> XUpperLimit(MaxNumberOfItteration);
+std::vector<float> YLowerLimit(MaxNumberOfItteration);
+std::vector<float> YUpperLimit(MaxNumberOfItteration);
+std::vector<float> ZLowerLimit(MaxNumberOfItteration);
+std::vector<float> ZUpperLimit(MaxNumberOfItteration);
+std::vector<float> GonioLowerLimit(MaxNumberOfItteration);
+std::vector<float> GonioUpperLimit(MaxNumberOfItteration);
+
+int NumberOfDataPoints = 20; //Number Of Measurements Made per run in the Homing Function
+float LimitMultiplicator = 1;
+float StartEfficiency = 20; //Used to start the Homing Process, Value will need to change
+
+bool StopLoop = false; //Used to stop homing, when the condition for too little improvement is met 
+float ImprovementLimit = 0.001; //Stops the Homing process if 1 - (NewCouplingEfficiency / OldCouplingEfficiency) < ImprovementLimit  
 
 
 // CAboutDlg-Dialogfeld für Anwendungsbefehl "Info"
@@ -118,9 +154,9 @@ float MeaurementArmVoltageToPower(float Voltage) {
 	float OpticalPowerBeamSplitterCorrected;
 	float TrueOpticalPower;
 
-	OpticalPowerFromVoltage = Voltage * 0.1963 + 0.0968;
+	OpticalPowerFromVoltage = (0.1963 * Voltage)  + 0.0968;
 
-	OpticalPowerBeamSplitterCorrected = 1.12889 * OpticalPowerFromVoltage - 0.0156953; //Correction for the unequal splitting from the beamsplitter
+	OpticalPowerBeamSplitterCorrected = (1.12889 * OpticalPowerFromVoltage) - 0.0156953; //Correction for the unequal splitting from the beamsplitter
 
 	TrueOpticalPower = OpticalPowerBeamSplitterCorrected / Transmissivity; //Corrected for Backreflections on the Fiber to Air medium interface
 	return TrueOpticalPower;
@@ -130,7 +166,7 @@ float MeaurementArmVoltageToPower(float Voltage) {
 float ReferenceArmVoltageToPower(float Voltage) {
 	float OpticalPower;
 	float TrueOpticalPower;
-	OpticalPower = Voltage * 0.1988 + 0.129;
+	OpticalPower = (Voltage * 0.1988) + 0.129;
 
 	TrueOpticalPower = 920 * OpticalPower / 910; //Correction for the lense, as measured.
 
@@ -335,12 +371,12 @@ float CFiberAlignProjectVSDlg::StepperCorrection(long AxisIndex, float StepperMo
 
 float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Position) {
 
-	std::vector<float> Positions = SplitPosition(Position);
+
+
 	switch (AxisIndex) {
 	case 0: {
-		
 
-
+		XStepperPosition = Position;
 		StepperX.SetAbsMovePos(ChanID, StepperCorrection(AxisIndex, Position));
 		StepperX.MoveAbsolute(ChanID, true);
 		//PiezoX.SetPosOutput(ChanID, Positions[1]);
@@ -350,6 +386,7 @@ float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Posi
 
 	case 1: {
 
+		YStepperPosition = Position;
 		StepperY.SetAbsMovePos(ChanID, StepperCorrection(AxisIndex, Position));
 		StepperY.MoveAbsolute(ChanID, true);
 		//PiezoY.SetPosOutput(ChanID, Positions[1]);
@@ -358,6 +395,7 @@ float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Posi
 	}
 	case 2: {
 
+		ZStepperPosition = Position;
 		StepperZ.SetAbsMovePos(ChanID, StepperCorrection(AxisIndex, Position));
 		StepperZ.MoveAbsolute(ChanID, true);
 		//PiezoZ.SetPosOutput(ChanID, Positions[1]);
@@ -367,6 +405,7 @@ float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Posi
 	}
 	case 3: {
 
+		GonioStepperPosition = Position;
 		StepperGonio.SetAbsMovePos(ChanID,GonioAngleToLength(Position));
 		StepperGonio.MoveAbsolute(ChanID, true);
 
@@ -604,12 +643,205 @@ ON_EVENT(CFiberAlignProjectVSDlg, IDC_COMMANDBUTTON8, DISPID_CLICK, CFiberAlignP
 ON_EVENT(CFiberAlignProjectVSDlg, IDC_COMMANDBUTTON8, DISPID_CLICK, CFiberAlignProjectVSDlg::ClickCommandbutton8, VTS_NONE)
 ON_EVENT(CFiberAlignProjectVSDlg, IDC_COMMANDBUTTON2, DISPID_CLICK, CFiberAlignProjectVSDlg::ClickCommandbutton2, VTS_NONE)
 ON_EVENT(CFiberAlignProjectVSDlg, IDC_COMMANDBUTTON4, DISPID_CLICK, CFiberAlignProjectVSDlg::ClickCommandbutton4, VTS_NONE)
+ON_EVENT(CFiberAlignProjectVSDlg, IDC_COMMANDBUTTON3, DISPID_CLICK, CFiberAlignProjectVSDlg::ClickCommandbutton3, VTS_NONE)
 END_EVENTSINK_MAP()
 
+//Checking if the difference in the coupling efficiency is sufficiently small to stop the homing process
+bool CheckCouplingEfficiencyIncrease(float OldEfficiency, float NewEfficiency) {
 
-//Homing button
-void CFiberAlignProjectVSDlg::ClickCommandbutton1()
+	bool Output = false;
+
+	Output = (1 - (NewEfficiency / OldEfficiency)) < ImprovementLimit && (1 - (NewEfficiency / OldEfficiency)) > 0;
+
+	return Output;
+}
+
+
+//StartHoming button
+bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 {
+	float LowerMeasurementLimit;
+	float UpperMeasurementLimit;
+	float PeakEfficiency;
+	std::vector<float> TempVector(4);
+
+
+	for (int i = 0; i < MaxNumberOfItteration; i++) //Main Loop for the itterative process of finding the peak 
+	{
+		if (i >= MinNumberOfItteration) //If sufficently many itterations were made, the ending condition is determined
+		{								// Only if all axis have low enough improvements is the programm halted
+			StopLoop =	CheckCouplingEfficiencyIncrease(PeakCouplingEfficiencyX[i - 2], PeakCouplingEfficiencyX[i - 1]) &&
+						CheckCouplingEfficiencyIncrease(PeakCouplingEfficiencyY[i - 2], PeakCouplingEfficiencyY[i - 1]) && 
+						CheckCouplingEfficiencyIncrease(PeakCouplingEfficiencyZ[i - 2], PeakCouplingEfficiencyZ[i - 1]) &&
+						CheckCouplingEfficiencyIncrease(PeakCouplingEfficiencyGonio[i - 2], PeakCouplingEfficiencyGonio[i - 1]);
+		}
+
+		if (i >= MinNumberOfItteration && StopLoop) //Check if the ImprovementLimit is met
+		{
+			DebugNum2.put_Caption(L"Stopped Homing because of StopLoop, not enough improvements");
+			Optimum[0] = XStepperPosition; //The Optimum Prameter are written to the Optimum List, enabling the user to use the 
+			Optimum[1] = YStepperPosition; //return to Optimum Button and the Relative Measurement function
+			Optimum[2] = ZStepperPosition;
+			Optimum[3] = GonioStepperPosition;
+
+			
+
+			break;
+		}
+
+		for (int j = 0; j < 4; j++) //Looping over the axes, order being X,Y,Z,Gonio
+		{
+
+			switch (j) {
+			case 0: 
+			{
+				if (i == 0)
+				{
+					LowerMeasurementLimit = 0;
+					UpperMeasurementLimit = 3.7; 
+					PeakEfficiency = StartEfficiency;
+
+				}
+				else {
+					LowerMeasurementLimit = XLowerLimit[i - 1] * LimitMultiplicator;
+					UpperMeasurementLimit = XUpperLimit[i - 1] * LimitMultiplicator;
+					PeakEfficiency = PeakCouplingEfficiencyX[i - 1];
+				}
+
+				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, PeakEfficiency, i);
+
+				if (Error) //If a Limit is out of bounds, stop the homing function
+				{
+					DebugNum1.put_Caption(L"HomingProcess stopped because of Error");
+					return false;
+				}
+
+				XLowerLimit[i] = TempVector[0];
+				XUpperLimit[i] = TempVector[1];
+				PeakCouplingEfficiencyX[i] = TempVector[3];
+				MoveActuatorToPosition(j,TempVector[2]);
+
+				break;
+			}
+			case 1: {
+
+				if (i == 0)
+				{
+					LowerMeasurementLimit = 0;
+					UpperMeasurementLimit = 3.7;
+					PeakEfficiency = StartEfficiency;
+
+				}
+				else {
+					LowerMeasurementLimit = YLowerLimit[i - 1] * LimitMultiplicator;
+					UpperMeasurementLimit = YUpperLimit[i - 1] * LimitMultiplicator;
+					PeakEfficiency = PeakCouplingEfficiencyY[i - 1];
+				}
+
+				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, PeakEfficiency, i);
+
+				if (Error) //If a Limit is out of bounds, stop the homing function
+				{
+					DebugNum1.put_Caption(L"HomingProcess stopped because of Error");
+					return false;
+				}
+
+				YLowerLimit[i] = TempVector[0];
+				YUpperLimit[i] = TempVector[1];
+				PeakCouplingEfficiencyY[i] = TempVector[3];
+				MoveActuatorToPosition(j, TempVector[2]);
+
+				break;
+			}
+			case 2: {
+
+				if (i == 0)
+				{
+					LowerMeasurementLimit = 0;
+					UpperMeasurementLimit = 3.7;
+					PeakEfficiency = StartEfficiency;
+
+				}
+				else {
+					LowerMeasurementLimit = ZLowerLimit[i - 1] * LimitMultiplicator;
+					UpperMeasurementLimit = ZUpperLimit[i - 1] * LimitMultiplicator;
+					PeakEfficiency = PeakCouplingEfficiencyZ[i - 1];
+				}
+
+				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, PeakEfficiency, i);
+
+				if (Error) //If a Limit is out of bounds, stop the homing function
+				{
+					DebugNum1.put_Caption(L"HomingProcess stopped because of Error");
+					return false;
+				}
+
+				ZLowerLimit[i] = TempVector[0];
+				ZUpperLimit[i] = TempVector[1];
+				PeakCouplingEfficiencyZ[i] = TempVector[3];
+				MoveActuatorToPosition(j, TempVector[2]);
+
+				break;
+			}
+			case 3: {
+
+				if (i == 0)
+				{
+					LowerMeasurementLimit = -5.5;
+					UpperMeasurementLimit = 5.5;
+					PeakEfficiency = StartEfficiency;
+
+				}
+				else {
+					LowerMeasurementLimit = GonioLowerLimit[i - 1] * LimitMultiplicator;
+					UpperMeasurementLimit = GonioUpperLimit[i - 1] * LimitMultiplicator;
+					PeakEfficiency = PeakCouplingEfficiencyGonio[i - 1];
+				}
+
+				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, PeakEfficiency, i);
+
+				if (Error) //If a Limit is out of bounds, stop the homing function
+				{
+					DebugNum1.put_Caption(L"HomingProcess stopped because of Error");
+					return false;
+				}
+
+				GonioLowerLimit[i] = TempVector[0];
+				GonioUpperLimit[i] = TempVector[1];
+				PeakCouplingEfficiencyGonio[i] = TempVector[3];
+				MoveActuatorToPosition(j, TempVector[2]);
+
+				break;
+			}
+			default: {DebugNum3.put_Caption(L"Axis Index Error"); }
+			}
+
+
+
+
+
+		}
+		
+
+
+
+	}
+	
+	//Save all Lists used in the Loop into textfiles
+	SaveToFile(PeakCouplingEfficiencyX, "OutputVectors","PeakCouplingEfficiencyX");
+	SaveToFile(PeakCouplingEfficiencyY, "OutputVectors", "PeakCouplingEfficiencyY");
+	SaveToFile(PeakCouplingEfficiencyZ, "OutputVectors", "PeakCouplingEfficiencyZ");
+	SaveToFile(PeakCouplingEfficiencyGonio, "OutputVectors", "PeakCouplingEfficiencyGonio");
+	SaveToFile(XLowerLimit, "OutputVectors", "XLowerLimit");
+	SaveToFile(XUpperLimit, "OutputVectors", "XUpperLimit");
+	SaveToFile(YLowerLimit, "OutputVectors", "	YLowerLimit");
+	SaveToFile(YUpperLimit, "OutputVectors", "YUpperLimit");
+	SaveToFile(ZLowerLimit, "OutputVectors", "ZLowerLimit");
+	SaveToFile(ZUpperLimit, "OutputVectors", "ZUpperLimit");
+	SaveToFile(GonioLowerLimit, "OutputVectors", "GonioLowerLimit");
+	SaveToFile(GonioUpperLimit, "OutputVectors", "	GonioUpperLimit");
+
+
 
 
 }
@@ -716,7 +948,7 @@ std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues(float Range) {
 
 	Results[0] = (VoltageSumZero / (static_cast<float>(2) * VoltageListZero.size()) * Range + VoltageSumOne / (static_cast<float>(2) * VoltageListZero.size()) * Range) / 32768;
 	Results[1] = (VoltageSumTwo / (static_cast<float>(2) * VoltageListZero.size()) * Range + VoltageSumThree / (static_cast<float>(2) * VoltageListZero.size()) * Range) / 32768;
-	Results[2] = MeaurementArmVoltageToPower(Results[1]) * 100 / ReferenceArmVoltageToPower(Results[0]);
+	Results[2] = (MeaurementArmVoltageToPower(Results[1]) * 100 / ReferenceArmVoltageToPower(Results[0])) - 10;
 
 	serial.Close();
 
@@ -758,17 +990,20 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 	float AccelerationXYZ = 4;
 	float AccelerationGonio = 1.5;
 	float MaxVelo = 2;
-	float StepperMiddlePosition = 1.9;
+	float StepperMiddlePosition = 1.9; 
 	long SoftwareLimitSwitchBehavior = 2;
 
+	//Determined Experimentally, these values determine the offset between the limit switch in the actuators and the zero point
 	float ZeroOffsetX = 2.65;
 	float ZeroOffsetY = 2.525;
 	float ZeroOffsetZ = 2.45;
 	float ZeroOffsetGonio = 7.55;
 
-	long PiezoControlMode = 4;
+	long PiezoControlMode = 4; //Closed Loop Mode, using strain gauges to determine the position and a PI controller to counteract any errors
 	float PiezoMiddlePosition = 10;
 	long VoltMicronOutputMode = 2;
+
+	//Sets the Constants for the PI controller. This does not seem to work, as no behavior as expected from a Integral Controller is visable
 	long PConstant = 50;
 	long IConstant = 100;
 
@@ -883,7 +1118,7 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton2()
 
 //TestButton
 void CFiberAlignProjectVSDlg::ClickCommandbutton7() {
-
+	
 
 }
 
@@ -892,6 +1127,8 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton7() {
 
 //Go from point to point, Measuring the Coupling Efficiency at every point, then evaluate where the maximum point is and returning the Lower and Upper Plateau edge, the middle and highest coupling efficiency.
 std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, float OldMaximum, int Itterator) {
+	
+
 
 	std::vector<float> PositionList = NumberListFunction(LowerLimit, UpperLimit, NumberOfPoints);
 	std::vector<float> VoltageList(NumberOfPoints);
@@ -920,12 +1157,49 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 			
 		break;
 	}
+	default: {DebugNum3.put_Caption(L"Axis Index Error"); }
+	}
+
+	float AllowedLowerLim = 0;
+	float AllowedUpperLim = 0;
+
+	//Check if the limits are within the allowed limits set by the stages physical limitations
+	switch (AxisIndex) {
+	case 0: {
+		AllowedLowerLim = 0;
+		AllowedUpperLim = MaxPosX;
+		break;
+	}
+	case 1: {
+		AllowedLowerLim = 0;
+		AllowedUpperLim = MaxPosY;
+		break;
+	}
+	case 2: {
+		AllowedLowerLim = 0;
+		AllowedUpperLim = MaxPosZ;
+		break;
+	}
+	case 3: {
+		AllowedLowerLim = -9;
+		AllowedUpperLim = 9;
+		break;
+	}
 	default: {}
+	}
+	//Stop run from starting if the stage would go out of limits
+	if (LowerLimit < AllowedLowerLim || UpperLimit > AllowedUpperLim)
+	{
+		DebugNum1.put_Caption(L"Limits for Measurement Run Out of Bounds");
+		std::vector<float> Results = {0,0,0,0};
+		Error = true;
+		return Results;
+
 	}
 
 
 	MoveActuatorToPosition(AxisIndex, PositionList[0]);
-	Sleep(4000);
+	Sleep(2);
 	for (long i = 0; i < NumberOfPoints; i++)
 	{
 		MoveActuatorToPosition(AxisIndex, PositionList[i]);
@@ -942,11 +1216,11 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 	const char* FolderDirChar = FolderAppendedString.c_str();
 	_mkdir(FolderDirChar);
 
-	std::string FilePosition = "Position";
-	std::string FileEfficiency = "Efficiency";
+	std::string FileTitlePosition = "Position";
+	std::string FileTitelEfficiency = "Efficiency";
 
-	SaveToFile(PositionList, FolderDirChar, FilePosition + AxisString);
-	SaveToFile(VoltageList, FolderDirChar, FileEfficiency + AxisString);
+	SaveToFile(PositionList, FolderDirChar, FileTitlePosition + AxisString);
+	SaveToFile(VoltageList, FolderDirChar, FileTitelEfficiency + AxisString);
 	
 
 
@@ -979,56 +1253,15 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 	float LowerLim = ReadLowerLimitValue();
 	float UpperLim = ReadUpperLimitValue();
 	long Numb = ReadNumberOfPointsValue();
-	float AllowedLowerLim = 0;
-	float AllowedUpperLim = 0;
-
-	//Check if the limits are within the allowed limits set by the stages physical limitations
-	switch (Axis) {
-	case 0: {
-		AllowedLowerLim = 0;
-		AllowedUpperLim = MaxPosX;
-		break;
-	}
-	case 1: {
-		AllowedLowerLim = 0;
-		AllowedUpperLim = MaxPosY;
-		break;
-	}
-	case 2: {
-		AllowedLowerLim = 0;
-		AllowedUpperLim = MaxPosZ;
-		break;
-	}
-	case 3: {
-		AllowedLowerLim = -9;
-		AllowedUpperLim = 9;
-		break;
-	}
-	default: {}
-	}
+	
 
 	//Differentiate between relative and absolute measurements
 	if (RelativOrAbsolute == 0) 
 	{//Absolute Measurement
-		
-
-		if (LowerLim <= AllowedLowerLim || UpperLim >= AllowedUpperLim)
-			{
-			DebugNum1.put_Caption(L"Limits exceed limits");
-			return false;
-			}
-
-
 		MeasurementRun(Axis, LowerLim, UpperLim, Numb, Max, 1);
 
 	} else { 
 	//Relative Measurement, only possible if a optimum finding run was successfull 
-
-		if ((Optimum[Axis] + LowerLim) <= AllowedLowerLim || (Optimum[Axis] + UpperLim) >= AllowedUpperLim)
-		{
-			DebugNum1.put_Caption(L"Limits exceed limits");
-			return false;
-		}
 
 		MeasurementRun(Axis, Optimum[Axis] + LowerLim, Optimum[Axis] + UpperLim, Numb, Max, 1);
 
@@ -1041,3 +1274,14 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 
 
 
+
+//Return to the point of highest coupling efficiency
+void CFiberAlignProjectVSDlg::ClickCommandbutton3()
+{
+	MoveActuatorToPosition(0, Optimum[0]);
+	MoveActuatorToPosition(1, Optimum[1]);
+	MoveActuatorToPosition(2, Optimum[2]);
+	MoveActuatorToPosition(3, Optimum[3]);
+
+	//Add fine Peak Detection
+}
