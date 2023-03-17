@@ -47,7 +47,6 @@ CSerialPort2::FlowControl FlowControl = CSerialPort2::FlowControl::NoFlowControl
 
 				
 float Range = 6.144; //Range of the AD converter, 2^16 values are linearly divided from -Range to Range
-float Fraction = 1 / 3; //Used for detecting the Plateaus edges
 
 long ChanID = 0;
 
@@ -66,6 +65,14 @@ float MaxPosGonio = 6;
 float RefractiveIndexAir = 1.00027798; //https://refractiveindex.info/?shelf=other&book=air&page=Ciddor
 float RefractiveIndexFiberCore = 1.5;    //Equation https://en.wikipedia.org/wiki/Fresnel_equations#:~:text=%5Bedit%5D-,Normal%20incidence,-%5Bedit%5D
 float Transmissivity = 1 - pow( abs((RefractiveIndexFiberCore - RefractiveIndexAir)/(RefractiveIndexFiberCore + RefractiveIndexAir)), 2);
+int NumberOfDataPoints = 20; //Number Of Measurements Made per run in the Homing Function
+float LimitMultiplicator = 1;
+float StartEfficiency = 80; //Used to start the Homing Process, Value will need to change
+
+bool StopLoop = false; //Used to stop homing, when the condition for too little improvement is met 
+float ImprovementLimit = 0.001; //Stops the Homing process if 1 - (NewCouplingEfficiency / OldCouplingEfficiency) < ImprovementLimit  
+
+
 
 std::vector<float> Optimum = {0,0,0,0}; //Used for the return to Optimum button
 
@@ -80,8 +87,10 @@ float ZPiezoPosition = 0;
 
 bool Error = false; //Used to stop programm in case of a limit error or simular situations
 
-int MaxNumberOfItteration = 20; //Used to stop programm should too many itterations have happend
+int MaxNumberOfItteration = 15; //Used to stop programm should too many itterations have happend
 int MinNumberOfItteration = 5; //The Homing process should at least do this many itterations bevor the condition StopLoop comes into play
+float Fraction = 1/2; //Used for detecting the Plateaus edges
+
 
 std::vector<float> PeakCouplingEfficiencyX(MaxNumberOfItteration); //Used to track the coupling efficiency of the axis over time
 std::vector<float> PeakCouplingEfficiencyY(MaxNumberOfItteration);
@@ -97,12 +106,6 @@ std::vector<float> ZUpperLimit(MaxNumberOfItteration);
 std::vector<float> GonioLowerLimit(MaxNumberOfItteration);
 std::vector<float> GonioUpperLimit(MaxNumberOfItteration);
 
-int NumberOfDataPoints = 20; //Number Of Measurements Made per run in the Homing Function
-float LimitMultiplicator = 1;
-float StartEfficiency = 20; //Used to start the Homing Process, Value will need to change
-
-bool StopLoop = false; //Used to stop homing, when the condition for too little improvement is met 
-float ImprovementLimit = 0.001; //Stops the Homing process if 1 - (NewCouplingEfficiency / OldCouplingEfficiency) < ImprovementLimit  
 
 
 // CAboutDlg-Dialogfeld für Anwendungsbefehl "Info"
@@ -251,9 +254,11 @@ long FindEdgeIndices(std::vector<float> List, float EdgeValue, float Fraction, b
 std::vector<float> DetectPlateau(std::vector<float> VoltageList, std::vector<float> PositionList, float Maxima, float Fraction) {
 
 	std::vector<float> Result(3);
+	auto Maximum = std::max_element(std::begin(VoltageList), std::end(VoltageList));
 
-	Result[0] = PositionList[FindEdgeIndices(VoltageList, Maxima, Fraction, true)];
-	Result[1] = PositionList[FindEdgeIndices(VoltageList, Maxima, Fraction, false)];
+
+	Result[0] = PositionList[FindEdgeIndices(VoltageList, *Maximum, Fraction, true)];
+	Result[1] = PositionList[FindEdgeIndices(VoltageList, *Maximum, Fraction, false)];
 	Result[2] = (Result[0] + Result[1]) / 2;
 
 	return(Result);
@@ -338,7 +343,7 @@ float CFiberAlignProjectVSDlg::StepperCorrection(long AxisIndex, float StepperMo
 	switch (AxisIndex) {
 	case 0: {
 		
-		CorrectedPosition = ( -XCorrectionValues[1] + sqrt( pow(XCorrectionValues[1], 2) - 4 * XCorrectionValues[0] * (XCorrectionValues[2] - StepperMotorShouldBePosition))) / (2 * XCorrectionValues[0]);
+		CorrectedPosition = (-XCorrectionValues[1] + sqrt( pow(XCorrectionValues[1], 2) - 4 * XCorrectionValues[0] * (XCorrectionValues[2] - StepperMotorShouldBePosition))) / (2 * XCorrectionValues[0]);
 
 		DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(CorrectedPosition)));
 		break;
@@ -684,8 +689,6 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 			Optimum[2] = ZStepperPosition;
 			Optimum[3] = GonioStepperPosition;
 
-			
-
 			break;
 		}
 
@@ -693,8 +696,7 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 		{
 
 			switch (j) {
-			case 0: 
-			{
+			case 0: {
 				if (i == 0)
 				{
 					LowerMeasurementLimit = 0;
@@ -816,7 +818,19 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 			default: {DebugNum3.put_Caption(L"Axis Index Error"); }
 			}
 
-
+			//Save all Lists used in the Loop into textfiles
+			SaveToFile(PeakCouplingEfficiencyX, "OutputVectors", "PeakCouplingEfficiencyX");
+			SaveToFile(PeakCouplingEfficiencyY, "OutputVectors", "PeakCouplingEfficiencyY");
+			SaveToFile(PeakCouplingEfficiencyZ, "OutputVectors", "PeakCouplingEfficiencyZ");
+			SaveToFile(PeakCouplingEfficiencyGonio, "OutputVectors", "PeakCouplingEfficiencyGonio");
+			SaveToFile(XLowerLimit, "OutputVectors", "XLowerLimit");
+			SaveToFile(XUpperLimit, "OutputVectors", "XUpperLimit");
+			SaveToFile(YLowerLimit, "OutputVectors", "YLowerLimit");
+			SaveToFile(YUpperLimit, "OutputVectors", "YUpperLimit");
+			SaveToFile(ZLowerLimit, "OutputVectors", "ZLowerLimit");
+			SaveToFile(ZUpperLimit, "OutputVectors", "ZUpperLimit");
+			SaveToFile(GonioLowerLimit, "OutputVectors", "GonioLowerLimit");
+			SaveToFile(GonioUpperLimit, "OutputVectors", "GonioUpperLimit");
 
 
 
@@ -827,19 +841,7 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 	}
 	
-	//Save all Lists used in the Loop into textfiles
-	SaveToFile(PeakCouplingEfficiencyX, "OutputVectors","PeakCouplingEfficiencyX");
-	SaveToFile(PeakCouplingEfficiencyY, "OutputVectors", "PeakCouplingEfficiencyY");
-	SaveToFile(PeakCouplingEfficiencyZ, "OutputVectors", "PeakCouplingEfficiencyZ");
-	SaveToFile(PeakCouplingEfficiencyGonio, "OutputVectors", "PeakCouplingEfficiencyGonio");
-	SaveToFile(XLowerLimit, "OutputVectors", "XLowerLimit");
-	SaveToFile(XUpperLimit, "OutputVectors", "XUpperLimit");
-	SaveToFile(YLowerLimit, "OutputVectors", "	YLowerLimit");
-	SaveToFile(YUpperLimit, "OutputVectors", "YUpperLimit");
-	SaveToFile(ZLowerLimit, "OutputVectors", "ZLowerLimit");
-	SaveToFile(ZUpperLimit, "OutputVectors", "ZUpperLimit");
-	SaveToFile(GonioLowerLimit, "OutputVectors", "GonioLowerLimit");
-	SaveToFile(GonioUpperLimit, "OutputVectors", "	GonioUpperLimit");
+
 
 
 
