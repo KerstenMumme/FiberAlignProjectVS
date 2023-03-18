@@ -89,7 +89,7 @@ bool Error = false; //Used to stop programm in case of a limit error or simular 
 
 int MaxNumberOfItteration = 15; //Used to stop programm should too many itterations have happend
 int MinNumberOfItteration = 5; //The Homing process should at least do this many itterations bevor the condition StopLoop comes into play
-float Fraction = 1/2; //Used for detecting the Plateaus edges
+float Fraction = static_cast<float>(1) / 2; //Used for detecting the Plateaus edges
 
 
 std::vector<float> PeakCouplingEfficiencyX(MaxNumberOfItteration); //Used to track the coupling efficiency of the axis over time
@@ -253,13 +253,19 @@ long FindEdgeIndices(std::vector<float> List, float EdgeValue, float Fraction, b
 // and the Third is the Position in the middle.
 std::vector<float> DetectPlateau(std::vector<float> VoltageList, std::vector<float> PositionList, float Maxima, float Fraction) {
 
-	std::vector<float> Result(3);
+	std::vector<float> Result(4);
 	auto Maximum = std::max_element(std::begin(VoltageList), std::end(VoltageList));
 
 
 	Result[0] = PositionList[FindEdgeIndices(VoltageList, *Maximum, Fraction, true)];
 	Result[1] = PositionList[FindEdgeIndices(VoltageList, *Maximum, Fraction, false)];
-	Result[2] = (Result[0] + Result[1]) / 2;
+	
+	//Result[2] = (Result[0] + Result[1]) / 2;
+	
+	auto it = std::find(VoltageList.begin(), VoltageList.end(), *Maximum);
+	int Index = it - VoltageList.begin();
+	Result[2] = PositionList[Index];
+	Result[3] = *Maximum;
 
 	return(Result);
 }
@@ -1120,7 +1126,10 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton2()
 
 //TestButton
 void CFiberAlignProjectVSDlg::ClickCommandbutton7() {
-	
+
+	float Test = static_cast<float>(1) / 2;
+	DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(Test)));
+
 
 }
 
@@ -1229,6 +1238,7 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 	auto Maximum = std::max_element(std::begin(VoltageList), std::end(VoltageList));
 	std::vector<float> Results(4);
 	std::vector<float> PlateauResults;
+	//float Fraction = static_cast<float>(1) / 2;
 	PlateauResults = DetectPlateau(VoltageList, PositionList, OldMaximum, Fraction);
 	Results[0] = PlateauResults[0];
 	Results[1] = PlateauResults[1];
