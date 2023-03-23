@@ -89,7 +89,7 @@ public:
 	DECLARE_EVENTSINK_MAP()
 		LPCTSTR StringToLPCTSTR(std::string ToConvertString);
 	bool ClickCommandbutton1();
-	std::vector<float> GetVoltageValues(float Range);
+	std::vector<float> GetVoltageValues();
 	CLABEL11 LowerLimitUnitLabel;
 	CLABEL12 UpperLimitUnitLabel;
 	afx_msg void OnCbnEditchangeCombo1();

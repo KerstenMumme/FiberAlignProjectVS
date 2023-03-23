@@ -1,7 +1,50 @@
 
+/*
+CFiberAlignProjectVS
+Author: Kersten Mumme
+Date: 23.03.2023
+E-Mail Adress: kersten.mumme@uni-oldenburg.de or kersten.mumme@ewe.net	
+License: Feel free to use it for educational purposes, but contact me befor using it to make money, directly or indirectly. 
+
+This programm was created for my bachelors projects and consists of a simple user interface, a custom alghorithm to maximize the coupling efficiency of a free space laser beam into a fiber. 
+The theory behind the coupling is further explained in my thesis, but I can reiterate the main points here again.
+Problem: The coupling of a beam into a fiber is highly position dependent, on the scale of micrometer in accuracy. But exactly how sensitive is it and how do specially prepared fibers fare in comparison. 
+Solution: Build a setup that measures the coupling efficiency based on the position.
+Requirements: Automation of the homing process, which maximizes the coupling efficiency. Also automation of the measurements that follow. 
+Implementation: Using a NanoMax stage, made by Thorlabs, create a programm that handles the actuator movements to maximize the coupling efficiency. For this, a set of stepper motors was bought, with their respective 
+	control unit. As the NanoMax stage and the Piezo control unit was already availabe, the programm needed to also be able to talk with that. As the piezo controller was older then the newer software that Thorlabs uses
+	to communicate with the controllers, called "Kinesis", the old system needed to be used, which uses ActiveX control elements. 
+
+Adaptation Guide: 
+	1: Calibrate sensors and actuators. The transfer function used in this programm are specially chosen for the equipment used. 
+	2: Change IDs. The ActiveX control uses UUIDs to talk to specific controllers. The values filled in in the gui are the ones used in the original setup. If the controllers by Thorlabs do not have the UUIDs on the back of the box,
+		you can download the APT User software from their website, which automatically detects all connected controllers. Change the values in the Dialog page, to ensure that the programm is communicating with the correct controllers.
+	3: Flash the script to the Arduino. The library I used to decode the ADS1115 signal was helpfull, as in they provided the script I based mine on in the examples. For easiest adaptation, 
+		use the format of six digit values, split by !, with a & at the end of a dataset. An Example: 001345!001345!001345!001345&001345!001345!001345!001345&001345!001345!001345!001345&
+	4: 
+
+Startup Guide:
+	1: Complete the setup. Make sure a fiber is loaded into the holder, connect (and turn on if required) the sensors to the AD converter.   
+	2: Connect the gonio controller, the piezo controller and the stepper controller to the PC running the programm. (And turn them on)
+	3: Connect arduino to PC and flash the script, if not already in memory.
+	4: Start programm and calibrate the actuators, using the corresponding button. After that, move the actuators (using the GoToPosition Button) to a point where some coupling occurs. This can be done by eye in most cases.
+		To check if you have some coupling, use the Manual Voltage Measurement Button. Note that as of the 23.03.2023, the baseline coupling efficiency is 10%. Once at least Efficiency * Fraction > 10% is reached,
+		you can start the homing process. 
+	5: During the Homing process, the programm will start to create folders in the OutputVectors folder. In the first itteration of the homing process, monitor if at least one point with coupling efficiency over 10% is measured,
+		as no such point will result in a broken homing process. After the first itteration is done and each axis has found a point of sufficient efficiency, the process can be left unattended. 
+	6: After some time, on the scale of one to three hours, the homing process should come to a halt, when either the MaxNumberOfItterations is met, or the improvements are sufficiently small to declare a successfull homing.
+		On the other hand, it may crash should the measurements range of an axis goes out of bounds, but that should not happen and has not in all homing processes. 
+		All relevant data will be dumped into the OutputVectors folder, with some number of subfolders named ItterationX, where X is the current itteration variable, from 0 to MaxNumberOfItterations. 
+		There the Efficiency and Position Lists can be found, which were used by the programm to find the peak coupling efficiencies. 
+	7: Once the Homing process is done, the Return To Optimum button and relative Measurement Runs become available to the user. This is usefull when doing the final measurements, used to measure the coupling efficiency 
+		of the fiber per axis. Between each measurement run, press the return to Optimum button, as this is not done automatically. Otherwise the measurement will show the coupling efficiency outside of the beam, which is of no 
+		great interst. 
+	8: Using the provided Matlab script, the Position- and Efficiency Lists are used to create a number of plots, showing the coupling efficiency measurements change over the itterations. 
 
 
+Should any question reguarding this code or the setup come up, I am happy to attempt to answer them, which may or may not happen as I am not a software developer, but more an engineer who also does programming from time to time. 
 
+*/
 
 #include "pch.h"
 #include "framework.h"
@@ -47,6 +90,7 @@ CSerialPort2::FlowControl FlowControl = CSerialPort2::FlowControl::NoFlowControl
 
 				
 float Range = 6.144; //Range of the AD converter, 2^16 values are linearly divided from -Range to Range
+					//IMPORTANT NOTE: This value needs to be the same as the one set in the arduino script, to ensure correct conversion between bit values and voltage, as the ADS1115 features variable measurement ranges.
 
 long ChanID = 0; //Channel ID is used by Thorlabs for their two Channel units, as they behave differently from the three Channel Unit. 
 				//This variable is of no interest for this script, as the three channel units do not use it and the one channel unit requires a 
@@ -61,7 +105,7 @@ float MaxPosY = 3.8;
 float MinPosZ = -1;
 float MaxPosZ = 3.8;
 
-float MinPosGonio = -7;
+float MinPosGonio = -7; //The Limits for the gonio are set in mm, as thats the units the stage uses. In the rest of this programm the unit for the gonio is always in degree, only converted to mm for moving the stage.
 float MaxPosGonio = 6;
 
 										//Determine Backreflections from Fiber to Air interface
@@ -151,6 +195,7 @@ END_MESSAGE_MAP()
 
 
 //Converting a String to a LPCTSTR, used to input Captions into labels
+//While L"SomeString" would do the same, this does not work for variables 
 LPCTSTR CFiberAlignProjectVSDlg::StringToLPCTSTR(std::string ToConvertString) {
 
 	CString BufferCString((ToConvertString.c_str()));
@@ -259,7 +304,7 @@ long FindEdgeIndices(std::vector<float> List, float Maximum, float Fraction, boo
 
 //Detects the Plateau, depending on the Efficiency List, the Position List, the Maxima and the Fraction
 //The First Value is the lower Plateau Edge, the Second is the Higher Plateau Edge, 
-// and the Third is the Position in the middle.
+// and the Third is the Position of highest Efficiency.
 std::vector<float> DetectPlateau(std::vector<float> EfficiencyList, std::vector<float> PositionList, int AxisIndex) {
 
 	std::vector<float> Result(4);
@@ -269,7 +314,8 @@ std::vector<float> DetectPlateau(std::vector<float> EfficiencyList, std::vector<
 	float AllowedLowerLimit = 0;
 	float AllowedUpperLimit = 0;
 	
-	switch (AxisIndex) {
+
+	switch (AxisIndex) { //Setting the physical limits for the stage, to ensure the stepper motors do not crash into the housing 
 	case 0: {
 		AllowedLowerLimit = 0;
 		AllowedUpperLimit = MaxPosX;
@@ -293,65 +339,55 @@ std::vector<float> DetectPlateau(std::vector<float> EfficiencyList, std::vector<
 	default: {}
 	}
 
-	if (LowerLimitIndex == 0 && PositionList[LowerLimitIndex] - 0.1 > AllowedLowerLimit)
+	if (LowerLimitIndex == 0 && PositionList[LowerLimitIndex] - 0.1 > AllowedLowerLimit) //If the edge of the plateau is at the lower end of the measurement region, extend the region further in that direction
 	{
 		Result[0] = PositionList[LowerLimitIndex] - 0.1;
 	}
-	else {
+	else { //if it is not out of bounds, get the regular edge position
 		Result[0] = PositionList[LowerLimitIndex];
 	}
 
-	if (UpperLimitIndex == (NumberOfDataPoints - 1) && (PositionList[UpperLimitIndex] + 0.1) < AllowedUpperLimit)
+	if (UpperLimitIndex == (NumberOfDataPoints - 1) && (PositionList[UpperLimitIndex] + 0.1) < AllowedUpperLimit) //If the edge of the plateau is at the higher end of the measurement region, extend the region further in that direction
 	{
 		Result[1] = PositionList[UpperLimitIndex] + 0.1;
 	}
-	else {
+	else { //if it is not out of bounds, get the regular edge position
 		Result[1] = PositionList[UpperLimitIndex];
 	}
 
-		   auto it = std::find(EfficiencyList.begin(), EfficiencyList.end(), *Maximum);
-		   int Index = it - EfficiencyList.begin();
-		   Result[2] = PositionList[Index];
-		   Result[3] = *Maximum;
+	auto it = std::find(EfficiencyList.begin(), EfficiencyList.end(), *Maximum); //Get the index for the highest coupling efficiency
+	int Index = it - EfficiencyList.begin();
 
-		   if (Result[0] == Result[1]) //Broaden Measurement Area should only one point be above the threshhold
-		   {
-			   if (Result[2] - 0.2 > AllowedLowerLimit)
-			   {
-				   Result[0] = Result[2] - 0.2;
-			   }
-			   else
-			   {
-				   Result[0] = Result[2];
-			   }
+
+	Result[2] = PositionList[Index]; 
+	Result[3] = *Maximum;
+
+	if (Result[0] == Result[1]) //Broaden Measurement Area should only one point be above the threshhold
+	{
+		if (Result[2] - 0.2 > AllowedLowerLimit)
+		{
+			Result[0] = Result[2] - 0.2;
+		}
+		else
+		{
+			Result[0] = Result[2];
+		}
 			   
-			   if (Result[2] + 0.2 < AllowedUpperLimit)
-			   {
-				   Result[1] = Result[2] + 0.2;
-			   }
-			   else
-			   {
-				   Result[1] = Result[2];
-			   }
+		if (Result[2] + 0.2 < AllowedUpperLimit)
+		{
+			Result[1] = Result[2] + 0.2;
+		}
+		else
+		{
+			Result[1] = Result[2];
+		}
 			   
-		   }
+	}
 	
-		   return(Result);
+	return(Result);
 	
 }
 
-//Splits the Position Value into the Value for the Stepper Motor and the Piezo
-//Position is given in mm, while the Results are in mm and micrometer for the stepper and the piezo respectively
-std::vector<float> SplitPosition(float Position) {
-
-	std::vector<float> Results(2);
-
-	float TwentyMicroMeter = 0.02;
-
-	Results[0] = floor(Position / TwentyMicroMeter) * TwentyMicroMeter;
-	Results[1] = roundf((Position - Results[0]) * 1000);
-	return Results;
-}
 
 
 //Reads the float value of the Go To Pos Edit Box
@@ -406,16 +442,15 @@ float CFiberAlignProjectVSDlg::ReadNumberOfPointsValue() {
 
 }
 
-//Moves the Actuators of a Axis to a specified position.
-//The Axis Index is the same as in the drop down menu of the AxisSelector
-//0:X,1:Y,2:Z,3:Gonio
 
+//Corrects for the inaccuracies of the stepper motors by using the parabolic nature of the inaccuracies to use the quadratic equation to solve for the corrected position, that when 
+// put into the MoveActuators function will move the stepper motor to the true position
 float CFiberAlignProjectVSDlg::StepperCorrection(long AxisIndex, float StepperMotorShouldBePosition) {
 
 	float CorrectedPosition = 0;
-	std::vector<float> XCorrectionValues = { -0.0087, 1.0318, -0.0403};
-	std::vector<float> YCorrectionValues = { -0.0072, 1.0388, -0.0100};
-	std::vector<float> ZCorrectionValues = { -0.0400, 1.1898, -0.1001};
+	std::vector<float> XCorrectionValues = { -0.0087, 1.0318, -0.0403}; //Parameter for the quadratic nature of the inaccuracies.
+	std::vector<float> YCorrectionValues = { -0.0072, 1.0388, -0.0100};	//First Parameter is a, second b and third c, with the equation being y(x) = ax^2 + bx + c for the inaccuracies
+	std::vector<float> ZCorrectionValues = { -0.0400, 1.1898, -0.1001};	
 	switch (AxisIndex) {
 	case 0: {
 
@@ -450,19 +485,18 @@ float CFiberAlignProjectVSDlg::StepperCorrection(long AxisIndex, float StepperMo
 }
 
 
-
+//Moves the Actuators of a Axis to a specified position.
+//The Axis Index is the same as in the drop down menu of the AxisSelector
+//0:X,1:Y,2:Z,3:Gonio
 float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Position) {
-
 
 
 	switch (AxisIndex) {
 	case 0: {
 
-		XStepperPosition = Position;
+		XStepperPosition = Position; //Kept for future changes, to enable the piezos to also be moved
 		StepperX.SetAbsMovePos(ChanID, StepperCorrection(AxisIndex, Position));
 		StepperX.MoveAbsolute(ChanID, true);
-		//PiezoX.SetPosOutput(ChanID, Positions[1]);
-
 	}
 		  break;
 
@@ -471,17 +505,13 @@ float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Posi
 		YStepperPosition = Position;
 		StepperY.SetAbsMovePos(ChanID, StepperCorrection(AxisIndex, Position));
 		StepperY.MoveAbsolute(ChanID, true);
-		//PiezoY.SetPosOutput(ChanID, Positions[1]);
-
 		break;
 	}
 	case 2: {
 
 		ZStepperPosition = Position;
 		StepperZ.SetAbsMovePos(ChanID, StepperCorrection(AxisIndex, Position));
-		StepperZ.MoveAbsolute(ChanID, true);
-		//PiezoZ.SetPosOutput(ChanID, Positions[1]);
-		
+		StepperZ.MoveAbsolute(ChanID, true);		
 
 		break;
 	}
@@ -503,7 +533,8 @@ float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Posi
 	return Position;
 }
 
-
+//Function to Save a std::vector<float> into a .txt file, which is in the folder Folder and named Name
+//Note that the folder is not created automatically, this needs to be done either manually or where this function is called
 void SaveToFile(std::vector<float> VectorToBeSaved, std::string Folder, std::string Name) {
 
 	std::ofstream output_file("./" + Folder + "/" + Name + ".txt");
@@ -512,8 +543,7 @@ void SaveToFile(std::vector<float> VectorToBeSaved, std::string Folder, std::str
 
 }
 
-//Setting the correct labels for the Upper and Lower Limit, depending on the Axis selected
-	//ToDo: Add ° symbol, without weird A being added
+//Setting the correct labels for the Upper and Lower Limit and the GoToPosition Label, depending on the Axis selected
 void CFiberAlignProjectVSDlg::OnCbnSelchangeCombo1()
 {
 	int i = AxisSelectorDropDownMenu.GetCurSel();
@@ -523,7 +553,6 @@ void CFiberAlignProjectVSDlg::OnCbnSelchangeCombo1()
 		LowerLimitUnitLabel.put_Caption(L"mm");
 		UpperLimitUnitLabel.put_Caption(L"mm");
 		GoToPosUnitLabel.put_Caption(L"mm");
-
 
 	}
 	else if (i == 3) {
@@ -569,7 +598,6 @@ void CFiberAlignProjectVSDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_LABEL12, UpperLimitUnitLabel);
 	DDX_Control(pDX, IDC_LABEL14, GoToPosUnitLabel);
 
-
 	DDX_Control(pDX, IDC_COMMANDBUTTON1, StartHomingButton);
 	DDX_Control(pDX, IDC_COMMANDBUTTON2, ManualVoltageMeasurementButton);
 	DDX_Control(pDX, IDC_COMMANDBUTTON3, ReturnToOptimumButton);
@@ -582,7 +610,6 @@ void CFiberAlignProjectVSDlg::DoDataExchange(CDataExchange* pDX)
 
 	DDX_Control(pDX, IDC_COMBO1, AxisSelectorDropDownMenu);
 	DDX_Control(pDX, IDC_COMBO2, RelativeAndAbsoluteSelector);
-
 
 	DDX_Control(pDX, IDC_EDIT3, LowerPositionInputField);
 	DDX_Control(pDX, IDC_EDIT4, UpperPositionInputField);
@@ -602,10 +629,6 @@ BEGIN_MESSAGE_MAP(CFiberAlignProjectVSDlg, CDialogEx)
 //ON_CBN_EDITCHANGE(IDC_COMBO1, &CFiberAlignProjectVSDlg::OnCbnEditchangeCombo1)
 ON_CBN_SELCHANGE(IDC_COMBO1, &CFiberAlignProjectVSDlg::OnCbnSelchangeCombo1)
 END_MESSAGE_MAP()
-
-
-// CFiberAlignProjectVSDlg-Meldungshandler
-
 
 
 
@@ -639,7 +662,10 @@ BOOL CFiberAlignProjectVSDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);		// Kleines Symbol verwenden
 
 	// TODO: Hier zusätzliche Initialisierung einfügen
+	
 
+	//On start up, these functions are called.
+	//This is the only place where the .StartCtrl() function will work properly.
 	PiezoX.StartCtrl();
 	PiezoY.StartCtrl();
 	PiezoZ.StartCtrl();
@@ -648,14 +674,14 @@ BOOL CFiberAlignProjectVSDlg::OnInitDialog()
 	StepperZ.StartCtrl();
 	StepperGonio.StartCtrl();
 
-	AxisSelectorDropDownMenu.SetCurSel(0);
+	AxisSelectorDropDownMenu.SetCurSel(0); //The default axis and measurement run setting are set
 	RelativeAndAbsoluteSelector.SetCurSel(0);
 
-	LowerLimitUnitLabel.put_Caption(L"mm");
+	LowerLimitUnitLabel.put_Caption(L"mm"); //Units for the positions is set
 	UpperLimitUnitLabel.put_Caption(L"mm");
 	GoToPosUnitLabel.put_Caption(L"mm");
 
-	return TRUE;  // TRUE zurückgeben, wenn der Fokus nicht auf ein Steuerelement gesetzt wird
+	return TRUE;  
 }
 
 
@@ -710,11 +736,6 @@ HCURSOR CFiberAlignProjectVSDlg::OnQueryDragIcon()
 
 
 
-
-
-
-
-
 BEGIN_EVENTSINK_MAP(CFiberAlignProjectVSDlg, CDialogEx)
 	ON_EVENT(CFiberAlignProjectVSDlg, IDC_COMMANDBUTTON1, DISPID_CLICK, CFiberAlignProjectVSDlg::ClickCommandbutton1, VTS_NONE)
 	ON_EVENT(CFiberAlignProjectVSDlg, IDC_COMMANDBUTTON6, DISPID_CLICK, CFiberAlignProjectVSDlg::ClickCommandbutton6, VTS_NONE)
@@ -728,6 +749,8 @@ ON_EVENT(CFiberAlignProjectVSDlg, IDC_COMMANDBUTTON4, DISPID_CLICK, CFiberAlignP
 ON_EVENT(CFiberAlignProjectVSDlg, IDC_COMMANDBUTTON3, DISPID_CLICK, CFiberAlignProjectVSDlg::ClickCommandbutton3, VTS_NONE)
 END_EVENTSINK_MAP()
 
+
+
 //Checking if the difference in the coupling efficiency is sufficiently small to stop the homing process
 bool CheckCouplingEfficiencyIncrease(float OldEfficiency, float NewEfficiency) {
 
@@ -740,6 +763,11 @@ bool CheckCouplingEfficiencyIncrease(float OldEfficiency, float NewEfficiency) {
 
 
 //StartHoming button
+//This function results in a series of movements which will systematically maximize the coupling efficiency, until either the improvement limit is met, the number of allowed itterations is met or 
+//the measurement run function encounters an error. 
+//IMPORTANT NOTE: Should the homing function not find at least one value with some amount of coupling per axis in the first itteration, this function will not work. 
+//As it is a gradual improvement, the initial values are important to the outcome.
+//So to ensure proper function, set the stage to a point of at least some coupling efficiency, at least Coupling efficiency * Fraction > 10%, bevor starting the homing process.
 bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 {
 	float LowerMeasurementLimit;
@@ -774,8 +802,8 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 			switch (j) {
 			case 0: {
-				if (i == 0)
-				{
+				if (i == 0) //The first itteration needs initial values for the lower and upper limit. This is in this case the entire measurement range, but could also be made smaller, if the 
+				{			// region where the coupling occurs is already somewhat known
 					LowerMeasurementLimit = 0;
 					UpperMeasurementLimit = 3.7; 
 				}
@@ -786,7 +814,7 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, i);
 
-				if (Error) //If a Limit is out of bounds, stop the homing function
+				if (Error) //If a Limit is out of bounds, stop the homing function. 
 				{
 					DebugNum1.put_Caption(L"HomingProcess stopped because of Error");
 					return false;
@@ -888,7 +916,7 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 			default: {DebugNum3.put_Caption(L"Axis Index Error"); }
 			}
 
-			//Save all Lists used in the Loop into textfiles
+			//Save all Lists used in the Loop into textfiles. This is usefull for debugging the programm and keeping track of the stage over time 
 			SaveToFile(PeakCouplingEfficiencyX, "OutputVectors", "PeakCouplingEfficiencyX");
 			SaveToFile(PeakCouplingEfficiencyY, "OutputVectors", "PeakCouplingEfficiencyY");
 			SaveToFile(PeakCouplingEfficiencyZ, "OutputVectors", "PeakCouplingEfficiencyZ");
@@ -924,27 +952,26 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 
 
-std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues(float Range) {
+std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues() {
 
-	serial.CSerialPort::Open(ComPortName, BaudRate, Parity, DataBits, StopBits, FlowControl, Overlap);
+	serial.CSerialPort::Open(ComPortName, BaudRate, Parity, DataBits, StopBits, FlowControl, Overlap); //Open the serial connection with the arduino 
 	//serial.SetConfig();
 	std::vector<float> Results = {1, 1, 1};
-	serial.ClearReadBuffer();
+	serial.ClearReadBuffer(); //Clear the buffer of any older data, which would screw with the accuracy
 
 	Sleep(3000);
-	const int BUFFER_SIZE = 512;
+	const int BUFFER_SIZE = 512; //The amount of data to be read. Can go up to 1023, but will crash above. While 1023 bytes would result in better averaging, the values are so close together that it is 
+								//not necessary and would increase the runtime by a factor of two.
 
-		
 	char input_buffer[BUFFER_SIZE] = { NULL };
 
-	
 	serial.Read(input_buffer, BUFFER_SIZE-1);
-
 
 	std::string SerialOutputString = input_buffer;
 
 	//DebugNum3.put_Caption(StringToLPCTSTR(SerialOutputString));
 
+	//An exemplary string of what the SerialOutputString looks like. The Datasets are divided by !, while the data in a dataset is divided by &
 	//std::string SerialOutputString = "001345!001345!001345!001345&001345!001345!001345!001345&001345!001345!001345!001345&001345!001345!001345!001345&001345!001345!001345!001345&001345!001345!001345!001345&001345!001345!001345!001345&001345!001345!001345!001345";
 	std::vector<std::string> FaultyString = { "Failed", "to", "Initialize", "ADS"};
 
@@ -959,7 +986,7 @@ std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues(float Range) {
 		serial.Close();
 		Sleep(1000);
 
-		return GetVoltageValues(Range);
+		return GetVoltageValues();
 		//return Results;
 
 	}
@@ -980,7 +1007,7 @@ std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues(float Range) {
 		boost::split(TempString, FirstTimeSplit[i], boost::algorithm::is_any_of("!"), boost::algorithm::token_compress_mode_type::token_compress_on);
 
 		if (FirstTimeSplit[i].length() != 27 || std::count(FirstTimeSplit[i].begin(), FirstTimeSplit[i].end(), '!') != 3 || TempString.size() != 4)
-		{
+		{	//Super simple detection if the string is faulty, counting the number of characters and counting the number of !. While simple, this detection has so far not let any faulty lines through. 
 			FirstTimeSplit.erase(FirstTimeSplit.begin() + i);
 			i--;
 		}
@@ -994,7 +1021,7 @@ std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues(float Range) {
 		serial.Close();
 		Sleep(1000);
 		//DebugNum1.put_Caption(L"Too Few Values");
-		return GetVoltageValues(Range);
+		return GetVoltageValues();
 		//return Results;
 	}
 	//DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(FirstTimeSplit.size())));
@@ -1008,7 +1035,7 @@ std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues(float Range) {
 
 	std::vector<std::string> TempVoltageList;
 
-	for (long i = 0; i < FirstTimeSplit.size(); i++)
+	for (long i = 0; i < FirstTimeSplit.size(); i++) //Split the Datasets into the the data they consist of, then save them in seperate lists.
 	{
 		boost::split(TempVoltageList, FirstTimeSplit[i], boost::algorithm::is_any_of("!"), boost::algorithm::token_compress_mode_type::token_compress_on);
 		VoltageListZero[i] = stol(TempVoltageList[0]);
@@ -1017,17 +1044,22 @@ std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues(float Range) {
 		VoltageListThree[i] = stol(TempVoltageList[3]);
 	}
 
-	long VoltageSumZero = std::accumulate(VoltageListZero.begin(), VoltageListZero.end(), 0);
+	long VoltageSumZero = std::accumulate(VoltageListZero.begin(), VoltageListZero.end(), 0); //The vectors are summed up 
 	long VoltageSumOne = std::accumulate(VoltageListOne.begin(), VoltageListOne.end(), 0);
 	long VoltageSumTwo= std::accumulate(VoltageListTwo.begin(), VoltageListTwo.end(), 0);
 	long VoltageSumThree = std::accumulate(VoltageListThree.begin(), VoltageListThree.end(), 0);
 
-	Results[0] = (VoltageSumZero / (static_cast<float>(2) * VoltageListZero.size()) * Range + VoltageSumOne / (static_cast<float>(2) * VoltageListZero.size()) * Range) / 32768;
+	//The sum is then divided by the length of the lists, resulting in the mean value being divided by two and the number of bits(2^15) and multiplied by the Range. Then the two lists per arm are added up.
+	//This results in two lists of bit values being converted to a single float value which represents the mean voltage corresponding to the bit values.
+	Results[0] = (VoltageSumZero / (static_cast<float>(2) * VoltageListZero.size()) * Range + VoltageSumOne / (static_cast<float>(2) * VoltageListZero.size()) * Range) / 32768; 
 	Results[1] = (VoltageSumTwo / (static_cast<float>(2) * VoltageListZero.size()) * Range + VoltageSumThree / (static_cast<float>(2) * VoltageListZero.size()) * Range) / 32768;
+
+	//From the two optical powers, the coupling efficiency is then calculated. 
 	Results[2] = (MeaurementArmVoltageToPower(Results[1]) * 100 / ReferenceArmVoltageToPower(Results[0]));
 
-	serial.Close();
+	serial.Close(); //Closing the serial connection to the arduino properly increases the odds of a successfull connection to the ADS1115 in the future.
 
+	//The results from the Voltage measurement is then written to the Labels on the gui
 	MeasuredVoltagesLabel.put_Caption(StringToLPCTSTR("Measurement Arm Voltage = " + std::to_string(Results[1]) + " V " + "Reference Arm Voltage      = " + std::to_string(Results[0]) + " V "));
 	ReferenceArmOpticalPowerLabel.put_Caption(StringToLPCTSTR("PMeasurement = " + std::to_string(MeaurementArmVoltageToPower(Results[1])) + " mW " + "PReference      = " + std::to_string(ReferenceArmVoltageToPower(Results[0])) + " mW "));
 	CouplingEfficiencyLabel.put_Caption(StringToLPCTSTR("Coupling Efficiency = " + std::to_string(MeaurementArmVoltageToPower(Results[1]) * 100 / ReferenceArmVoltageToPower(Results[0])) + " %"));
@@ -1049,27 +1081,29 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton6()
 
 
 // Homing The Actuators and Moving them to the middle of their allowed positions.
+//This needs to be done at the start of the process, as otherwise the actuators do not behave properly. 
 void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 {
 
 	//Create Constants for Homing and Velocity Behavior
-	long HomeDirection = 2;
-	long HomeLimitSwitch = 1;
-	float HomeVelocity = 0.5;
-	long StageUnits = 1;
-	float PitchXYZ = 0.5;
-	float PitchGonio = 1;
+	long HomeDirection = 2; //Home in the negative direction
+	long HomeLimitSwitch = 1;	
+	float HomeVelocity = 0.5; //Sets homing speed
+	long StageUnits = 1; //Sets Units to mm instead of Deg
+	float PitchXYZ = 0.5; 
+	float PitchGonio = 1; 
 	long DirectionSense = 1;
-	long ReverseLimitSwitch = 2;
+	long ReverseLimitSwitch = 2; //Sets Limit Switch behavior, 1 = ignore, 2 = switch closes on contact
 	long ForwardLimitSwitch = 1;
-	float MinVelo = 0;
-	float AccelerationXYZ = 4;
-	float AccelerationGonio = 1.5;
-	float MaxVelo = 2;
-	float StepperMiddlePosition = 1.9; 
-	long SoftwareLimitSwitchBehavior = 2;
+	float MinVelo = 0; 
+	float AccelerationXYZ = 4; //Sets maximum acceleration for the motors
+	float AccelerationGonio = 1.5;	//Sets maximum acceleration for the gonio stage
+	float MaxVelo = 2;	//Sets maximum velocity for the motors
+	float StepperMiddlePosition = 1.9; //Sets middle position 
+	long SoftwareLimitSwitchBehavior = 2; //Stops motor instantly, should a software limit switch be engaged
 
 	//Determined Experimentally, these values determine the offset between the limit switch in the actuators and the zero point
+	//Measured by jogging the actuator forwards until the gauge shows a distance change
 	float ZeroOffsetX = 2.65;
 	float ZeroOffsetY = 2.525;
 	float ZeroOffsetZ = 2.45;
@@ -1077,9 +1111,9 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 
 	long PiezoControlMode = 4; //Closed Loop Mode, using strain gauges to determine the position and a PI controller to counteract any errors
 	float PiezoMiddlePosition = 10;
-	long VoltMicronOutputMode = 2;
+	long VoltMicronOutputMode = 2; //Sets the control to show the position instead of the voltage applied to the piezos 
 
-	//Sets the Constants for the PI controller. This does not seem to work, as no behavior as expected from a Integral Controller is visable
+	//Sets the Constants for the PI controller. This does not seem to work, as no behavior as expected from either a proportional or integral control unit
 	long PConstant = 50;
 	long IConstant = 100;
 
@@ -1116,7 +1150,7 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 	//Setting the Movement Characteristics of the Stepper Motors
 	StepperX.SetVelParams(ChanID, MinVelo, AccelerationXYZ, MaxVelo);
 	StepperY.SetVelParams(ChanID, MinVelo, AccelerationXYZ, MaxVelo);
-	StepperZ.SetVelParams(ChanID, MinVelo, 1*AccelerationXYZ, 1*MaxVelo);
+	StepperZ.SetVelParams(ChanID, MinVelo, 1*AccelerationXYZ, 1*MaxVelo); //Without the 1*, this function call does not work properly. 
 	StepperGonio.SetVelParams(ChanID, MinVelo, AccelerationGonio, MaxVelo);
 
 	//Setting the Displayed Units to Micrometer
@@ -1124,7 +1158,7 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 	PiezoY.SetVoltPosDispMode(ChanID, VoltMicronOutputMode);
 	PiezoZ.SetVoltPosDispMode(ChanID, VoltMicronOutputMode);
 
-	//Setting the PI Constants of the Piezo Controlers to favor the I behavior
+	//Setting the PI Constants of the Piezo Controlers to favor the integral behavior
 	PiezoX.SetPIConsts(ChanID, PConstant, IConstant);
 	PiezoY.SetPIConsts(ChanID, PConstant, IConstant);
 	PiezoZ.SetPIConsts(ChanID, PConstant, IConstant);
@@ -1139,7 +1173,7 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 	PiezoY.SetControlMode(ChanID, PiezoControlMode);
 	PiezoZ.SetControlMode(ChanID, PiezoControlMode);
 
-	Sleep(20000);
+	Sleep(20000); //Wait for the homing of the actuators to finish 
 
 	//Moving every Actuator to Halve their movement Range, for Manual Adjustment of the Setup,
 	//	To ensure the focal point is within the movement Range of the Stage
@@ -1148,12 +1182,13 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 	StepperY.SetAbsMovePos(ChanID, StepperMiddlePosition);
 	StepperZ.SetAbsMovePos(ChanID, StepperMiddlePosition);
 
+	//Set SoftWare behavior again, as it was lost since the first time setting it 
 	StepperX.SetSWPosLimits(ChanID, MinPosX, MaxPosX, SoftwareLimitSwitchBehavior);
 	StepperY.SetSWPosLimits(ChanID, MinPosY, MaxPosY, SoftwareLimitSwitchBehavior);
 	StepperZ.SetSWPosLimits(ChanID, MinPosZ, MaxPosZ, SoftwareLimitSwitchBehavior);
 	StepperGonio.SetSWPosLimits(ChanID, MinPosGonio, MaxPosGonio, SoftwareLimitSwitchBehavior);
 
-	//Do the Absolute Movement
+	//Do the Absolute Movement to the middle position
 	StepperX.MoveAbsolute(ChanID, false);
 	StepperY.MoveAbsolute(ChanID, false);
 	StepperZ.MoveAbsolute(ChanID, false);
@@ -1165,7 +1200,7 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 	PiezoZ.SetPosOutput(ChanID, PiezoMiddlePosition);
 
 
-	Sleep(13000);
+	Sleep(13000); //Wait until all movement has stopped bevor stopping this function
 
 }
 
@@ -1188,12 +1223,12 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton8()
 //Manual Voltage Measurement Button
 void CFiberAlignProjectVSDlg::ClickCommandbutton2()
 {
-	GetVoltageValues(Range);
+	GetVoltageValues();
 }
 
 
 
-//TestButton
+//TestButton, used for debugging
 void CFiberAlignProjectVSDlg::ClickCommandbutton7() {
 
 
@@ -1207,8 +1242,8 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 	
 
 
-	std::vector<float> PositionList = NumberListFunction(LowerLimit, UpperLimit, NumberOfPoints);
-	std::vector<float> VoltageList(NumberOfPoints);
+	std::vector<float> PositionList = NumberListFunction(LowerLimit, UpperLimit, NumberOfPoints); //Create the position list, containing NUmberOfPoints points between LowerLimit and UpperLimit
+	std::vector<float> EfficiencyList(NumberOfPoints); 
 	std::vector<float> TempVoltList(3);
 	std::string AxisString;
 
@@ -1240,10 +1275,10 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 	float AllowedLowerLim = 0;
 	float AllowedUpperLim = 0;
 
-	//Check if the limits are within the allowed limits set by the stages physical limitations
+	//Set Allowed Limits, which are compared to the determined Limits, to make sure they are within bounds
 	switch (AxisIndex) {
 	case 0: {
-		AllowedLowerLim = 0;
+		AllowedLowerLim = 0; //While the stage can move into the negative values, it is not used as motor movement below 0mm results in no movement of the stage.
 		AllowedUpperLim = MaxPosX;
 		break;
 	}
@@ -1253,12 +1288,12 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 		break;
 	}
 	case 2: {
-		AllowedLowerLim = 0;
+		AllowedLowerLim = 0; 
 		AllowedUpperLim = MaxPosZ;
 		break;
 	}
 	case 3: {
-		AllowedLowerLim = -9;
+		AllowedLowerLim = -9; //Limits in degree, which is why they are different from Min- and MaxPosGonio
 		AllowedUpperLim = 9;
 		break;
 	}
@@ -1275,14 +1310,13 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 	}
 
 
-	MoveActuatorToPosition(AxisIndex, PositionList[0]);
+	MoveActuatorToPosition(AxisIndex, PositionList[0]); //Move motor to the lowest position
 	Sleep(2);
-	for (long i = 0; i < NumberOfPoints; i++)
+	for (long i = 0; i < NumberOfPoints; i++) 
 	{
-		MoveActuatorToPosition(AxisIndex, PositionList[i]);
-		//Sleep(1500);
-		TempVoltList = GetVoltageValues(Range);
-		VoltageList[i] = TempVoltList[2];
+		MoveActuatorToPosition(AxisIndex, PositionList[i]); //Go to position, take a voltage measurement, save the coupling efficiency to EfficiencyList and go to next point. 
+		TempVoltList = GetVoltageValues();
+		EfficiencyList[i] = TempVoltList[2];
 
 	}
 	
@@ -1291,20 +1325,20 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 	std::string FolderAppendage = std::to_string(Itterator);
 	std::string FolderAppendedString = FolderStartString + FolderAppendage;
 	const char* FolderDirChar = FolderAppendedString.c_str();
-	_mkdir(FolderDirChar);
+	_mkdir(FolderDirChar); //create new folder for the Position and Efficiency Lists. This does noch check if the folder already exists, as creating it a second time does nothing
 
 	std::string FileTitlePosition = "Position";
 	std::string FileTitelEfficiency = "Efficiency";
 
-	SaveToFile(PositionList, FolderDirChar, FileTitlePosition + AxisString);
-	SaveToFile(VoltageList, FolderDirChar, FileTitelEfficiency + AxisString);
+	SaveToFile(PositionList, FolderDirChar, FileTitlePosition + AxisString); //Save the Position and Efficiency Lists to .txt files, with the names of the Axis and the itteration number added
+	SaveToFile(EfficiencyList, FolderDirChar, FileTitelEfficiency + AxisString);
 	
 
 
-	auto Maximum = std::max_element(std::begin(VoltageList), std::end(VoltageList));
+	auto Maximum = std::max_element(std::begin(EfficiencyList), std::end(EfficiencyList)); //Gets the highest coupling efficiency value
 	std::vector<float> Results(4);
 	std::vector<float> PlateauResults;
-	PlateauResults = DetectPlateau(VoltageList, PositionList,AxisIndex);
+	PlateauResults = DetectPlateau(EfficiencyList, PositionList,AxisIndex);
 	Results[0] = PlateauResults[0];
 	Results[1] = PlateauResults[1];
 	Results[2] = PlateauResults[2];
@@ -1322,6 +1356,7 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 
 
 //Start Coupling Efficiency Measurement Button
+//Gets the values from the AxisSelector, the RelativeAndAbsoluteSelector, the Lower- and UpperLimit and the NumberOfPoints edit field
 bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 {
 	int RelativOrAbsolute = RelativeAndAbsoluteSelector.GetCurSel();
@@ -1352,6 +1387,7 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 
 
 //Return to the point of highest coupling efficiency
+//Can only properly be called after a successfull homing run.
 void CFiberAlignProjectVSDlg::ClickCommandbutton3()
 {
 	MoveActuatorToPosition(0, Optimum[0]);
