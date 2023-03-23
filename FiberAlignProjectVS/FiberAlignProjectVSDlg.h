@@ -112,7 +112,7 @@ public:
 	void ClickCommandbutton8();
 	void ClickCommandbutton2();
 	bool ClickCommandbutton4();
-	std::vector<float> MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, float OldMaximum, int Itterator);
+	std::vector<float> MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, int Itterator);
 	CComboBox RelativeAndAbsoluteSelector;
 	void ClickCommandbutton3();
 };

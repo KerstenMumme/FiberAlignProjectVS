@@ -1,6 +1,7 @@
 
-// FiberAlignProjectVSDlg.cpp: Implementierungsdatei
-//
+
+
+
 
 #include "pch.h"
 #include "framework.h"
@@ -34,9 +35,8 @@ typedef std::basic_string<TCHAR> tstring;
 #define new DEBUG_NEW
 #endif
 
-//Creating Variables for the Serial Port.
+//Creating Variables for the Serial Port. Specific Values Depend on the arduino board used. 
 CSerialPort serial = CSerialPort::CSerialPort();
-
 LPCTSTR ComPortName = L"Com3";
 DWORD BaudRate = 9600;
 bool Overlap = false;
@@ -48,10 +48,12 @@ CSerialPort2::FlowControl FlowControl = CSerialPort2::FlowControl::NoFlowControl
 				
 float Range = 6.144; //Range of the AD converter, 2^16 values are linearly divided from -Range to Range
 
-long ChanID = 0;
+long ChanID = 0; //Channel ID is used by Thorlabs for their two Channel units, as they behave differently from the three Channel Unit. 
+				//This variable is of no interest for this script, as the three channel units do not use it and the one channel unit requires a 
+				//Value of 0.
 
-float MinPosX = -1; //Making sure the stage does not damadge itself
-float MaxPosX = 3.8;
+float MinPosX = -1; //Setting the physical boundries of the stage, to ensure that the stepper motors do not crash into the housing of the stage,
+float MaxPosX = 3.8;// Damaging both parts 
 
 float MinPosY = -1;
 float MaxPosY = 3.8;
@@ -61,35 +63,33 @@ float MaxPosZ = 3.8;
 
 float MinPosGonio = -7;
 float MaxPosGonio = 6;
+
 										//Determine Backreflections from Fiber to Air interface
 float RefractiveIndexAir = 1.00027798; //https://refractiveindex.info/?shelf=other&book=air&page=Ciddor
 float RefractiveIndexFiberCore = 1.5;    //Equation https://en.wikipedia.org/wiki/Fresnel_equations#:~:text=%5Bedit%5D-,Normal%20incidence,-%5Bedit%5D
 float Transmissivity = 1 - pow( abs((RefractiveIndexFiberCore - RefractiveIndexAir)/(RefractiveIndexFiberCore + RefractiveIndexAir)), 2);
-int NumberOfDataPoints = 35; //Number Of Measurements Made per run in the Homing Function
-float LimitMultiplicator = 1;
-float StartEfficiency = 40; //Used to start the Homing Process, Value will need to change
 
+
+int NumberOfDataPoints = 35; //Number Of Measurements Made per run in the Homing Function
+int MaxNumberOfItteration = 20; //Used to stop programm should too many itterations have happend
+int MinNumberOfItteration = 5; //The Homing process should at least do this many itterations bevor the condition StopLoop comes into play
+float Fraction = static_cast<float>(1) / 2; //Used for detecting the Plateaus edges
+bool Error = false; //Used to stop programm in case of a limit error or simular situations
 bool StopLoop = false; //Used to stop homing, when the condition for too little improvement is met 
 float ImprovementLimit = 0.02; //Stops the Homing process if 1 - (NewCouplingEfficiency / OldCouplingEfficiency) < ImprovementLimit  
 
 
-
 std::vector<float> Optimum = {0,0,0,0}; //Used for the return to Optimum button
+
 
 float XStepperPosition = 1; //Used to keep tracks of the stepper positions
 float YStepperPosition = 1;
 float ZStepperPosition = 1;
 float GonioStepperPosition = 0;
 
-float XPiezoPosition = 0;
+float XPiezoPosition = 0; //Used to keep tracks of the piezo positions
 float YPiezoPosition = 0;
 float ZPiezoPosition = 0;
-
-bool Error = false; //Used to stop programm in case of a limit error or simular situations
-
-int MaxNumberOfItteration = 10; //Used to stop programm should too many itterations have happend
-int MinNumberOfItteration = 5; //The Homing process should at least do this many itterations bevor the condition StopLoop comes into play
-float Fraction = static_cast<float>(1) / 2; //Used for detecting the Plateaus edges
 
 
 std::vector<float> PeakCouplingEfficiencyX(MaxNumberOfItteration); //Used to track the coupling efficiency of the axis over time
@@ -97,7 +97,7 @@ std::vector<float> PeakCouplingEfficiencyY(MaxNumberOfItteration);
 std::vector<float> PeakCouplingEfficiencyZ(MaxNumberOfItteration);
 std::vector<float> PeakCouplingEfficiencyGonio(MaxNumberOfItteration);
 
-std::vector<float> XHighestEfficiencyPosition(MaxNumberOfItteration);
+std::vector<float> XHighestEfficiencyPosition(MaxNumberOfItteration); //Used to track the point of highest coupling efficiency
 std::vector<float> YHighestEfficiencyPosition(MaxNumberOfItteration);
 std::vector<float> ZHighestEfficiencyPosition(MaxNumberOfItteration);
 std::vector<float> GonioHighestEfficiencyPosition(MaxNumberOfItteration);
@@ -105,10 +105,13 @@ std::vector<float> GonioHighestEfficiencyPosition(MaxNumberOfItteration);
 
 std::vector<float> XLowerLimit(MaxNumberOfItteration); //Track The Lower and Upper Limits per axes 
 std::vector<float> XUpperLimit(MaxNumberOfItteration);
+
 std::vector<float> YLowerLimit(MaxNumberOfItteration);
 std::vector<float> YUpperLimit(MaxNumberOfItteration);
+
 std::vector<float> ZLowerLimit(MaxNumberOfItteration);
 std::vector<float> ZUpperLimit(MaxNumberOfItteration);
+
 std::vector<float> GonioLowerLimit(MaxNumberOfItteration);
 std::vector<float> GonioUpperLimit(MaxNumberOfItteration);
 
@@ -147,7 +150,7 @@ BEGIN_MESSAGE_MAP(CAboutDlg, CDialogEx)
 END_MESSAGE_MAP()
 
 
-//Converting a String to a LPCTSTR, used to input Captions into Labels
+//Converting a String to a LPCTSTR, used to input Captions into labels
 LPCTSTR CFiberAlignProjectVSDlg::StringToLPCTSTR(std::string ToConvertString) {
 
 	CString BufferCString((ToConvertString.c_str()));
@@ -157,25 +160,25 @@ LPCTSTR CFiberAlignProjectVSDlg::StringToLPCTSTR(std::string ToConvertString) {
 	return TCharResult;
 }
 
-//Convert measured Voltage into Optical Power, as calibrated beforhand
+//Convert measured Voltage into Optical Power on the measurement arm, as calibrated beforhand
 float MeaurementArmVoltageToPower(float Voltage) {
 	float OpticalPowerFromVoltage;
 	float OpticalPowerBeamSplitterCorrected;
 	float TrueOpticalPower;
 
-	OpticalPowerFromVoltage = (0.1963 * Voltage)  + 0.0968;
+	OpticalPowerFromVoltage = (0.1963 * Voltage)  + 0.0968; //From calibration using Thorlabs PM 160 and a voltage measurement system consisting of an arduino and the ADS1115.
 
-	OpticalPowerBeamSplitterCorrected = (1.12889 * OpticalPowerFromVoltage) - 0.0156953; //Correction for the unequal splitting from the beamsplitter
+	OpticalPowerBeamSplitterCorrected = (1.12889 * OpticalPowerFromVoltage) - 0.0156953; //Correction for the unequal splitting from the beamsplitter, which 50% Reflection and 45% Transmittion at 543nm
 
-	TrueOpticalPower = OpticalPowerBeamSplitterCorrected / Transmissivity; //Corrected for Backreflections on the Fiber to Air medium interface
+	TrueOpticalPower = OpticalPowerBeamSplitterCorrected / Transmissivity; //Corrected for Backreflections on the Fiber to Air medium interface, based on the refractive indices.
 	return TrueOpticalPower;
 }
 
-//Convert measured Voltage into Optical Power, as calibrated beforhand
+//Convert measured Voltage into Optical Power on the reference arm, as calibrated beforhand
 float ReferenceArmVoltageToPower(float Voltage) {
 	float OpticalPower;
 	float TrueOpticalPower;
-	OpticalPower = (Voltage * 0.1988) + 0.129;
+	OpticalPower = (Voltage * 0.1988) + 0.129; //From calibration using Thorlabs PM 160 and a voltage measurement system consisting of an arduino and the ADS1115.
 
 	TrueOpticalPower = 920 * OpticalPower / 910; //Correction for the lense, as measured.
 
@@ -186,7 +189,7 @@ float ReferenceArmVoltageToPower(float Voltage) {
 float GonioAngleToLength(float Angle) {
 	float Length;
 
-	Length = 0.661641 * Angle + 0.0986658; //From Matlab fit 
+	Length = 0.661641 * Angle + 0.0986658; //Measured by setting a motor distance, and reading of the angle using the scale and nonius and fit in Matlab
 
 	return Length;
 }
@@ -196,7 +199,7 @@ float GonioAngleToLength(float Angle) {
 float GonioLengthToAngle(float Length) {
 	float Angle;
 
-	Angle = 1.51053 * Length - 0.149123; //From Matlab fit 
+	Angle = 1.51053 * Length - 0.149123; //Measured by setting a motor distance, and reading of the angle using the scale and nonius and fit in Matlab 
 
 	return Angle;
 }
@@ -219,7 +222,7 @@ std::vector<float> NumberListFunction(float LowerLimit, float UpperLimit, long N
 }
 
 //Detecting the Edges of the Plateau
-long FindEdgeIndices(std::vector<float> List, float EdgeValue, float Fraction, bool FromLeft) {
+long FindEdgeIndices(std::vector<float> List, float Maximum, float Fraction, bool FromLeft) {
 
 	long Result = 0;
 
@@ -227,7 +230,7 @@ long FindEdgeIndices(std::vector<float> List, float EdgeValue, float Fraction, b
 	{
 		for (long i = 0; i < List.size(); i++)
 		{
-			if (List[i] > (EdgeValue * Fraction))
+			if (List[i] > (Maximum * Fraction)) //Finding the index for which the corresponding value is the first that excedes the product of the maximum and the fraction, from the left side
 			{
 				Result = i;
 				break;
@@ -242,7 +245,7 @@ long FindEdgeIndices(std::vector<float> List, float EdgeValue, float Fraction, b
 
 		for (long i = (List.size() - 1); i >= 0; i--)
 		{
-			if (List[i] > (EdgeValue * Fraction))
+			if (List[i] > (Maximum * Fraction)) //Finding the index for which the corresponding value is the first that excedes the product of the maximum and the fraction, from the right side
 			{
 				Result = i;
 				break;
@@ -254,17 +257,17 @@ long FindEdgeIndices(std::vector<float> List, float EdgeValue, float Fraction, b
 	return Result;
 }
 
-//Detects the Plateau, depending on the Voltage List, the Position List, the Maxima and the Fraction
+//Detects the Plateau, depending on the Efficiency List, the Position List, the Maxima and the Fraction
 //The First Value is the lower Plateau Edge, the Second is the Higher Plateau Edge, 
 // and the Third is the Position in the middle.
-std::vector<float> DetectPlateau(std::vector<float> VoltageList, std::vector<float> PositionList, float Maxima, float Fraction, int AxisIndex) {
+std::vector<float> DetectPlateau(std::vector<float> EfficiencyList, std::vector<float> PositionList, int AxisIndex) {
 
 	std::vector<float> Result(4);
-	auto Maximum = std::max_element(std::begin(VoltageList), std::end(VoltageList));
-	int LowerLimitIndex = FindEdgeIndices(VoltageList, *Maximum, Fraction, true);
-	int UpperLimitIndex = FindEdgeIndices(VoltageList, *Maximum, Fraction, false);
-	float AllowedLowerLimit;
-	float AllowedUpperLimit;
+	auto Maximum = std::max_element(std::begin(EfficiencyList), std::end(EfficiencyList)); //Finding the highest coupling efficiency in the EfficiencyList 
+	int LowerLimitIndex = FindEdgeIndices(EfficiencyList, *Maximum, Fraction, true);
+	int UpperLimitIndex = FindEdgeIndices(EfficiencyList, *Maximum, Fraction, false);
+	float AllowedLowerLimit = 0;
+	float AllowedUpperLimit = 0;
 	
 	switch (AxisIndex) {
 	case 0: {
@@ -306,12 +309,8 @@ std::vector<float> DetectPlateau(std::vector<float> VoltageList, std::vector<flo
 		Result[1] = PositionList[UpperLimitIndex];
 	}
 
-
-		   //Result[2] = (Result[0] + Result[1]) / 2;
-
-
-		   auto it = std::find(VoltageList.begin(), VoltageList.end(), *Maximum);
-		   int Index = it - VoltageList.begin();
+		   auto it = std::find(EfficiencyList.begin(), EfficiencyList.end(), *Maximum);
+		   int Index = it - EfficiencyList.begin();
 		   Result[2] = PositionList[Index];
 		   Result[3] = *Maximum;
 
@@ -779,16 +778,13 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 				{
 					LowerMeasurementLimit = 0;
 					UpperMeasurementLimit = 3.7; 
-					PeakEfficiency = StartEfficiency;
-
 				}
 				else {
-					LowerMeasurementLimit = XLowerLimit[i - 1] * LimitMultiplicator;
-					UpperMeasurementLimit = XUpperLimit[i - 1] * LimitMultiplicator;
-					PeakEfficiency = PeakCouplingEfficiencyX[i - 1];
+					LowerMeasurementLimit = XLowerLimit[i - 1];
+					UpperMeasurementLimit = XUpperLimit[i - 1];
 				}
 
-				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, PeakEfficiency, i);
+				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, i);
 
 				if (Error) //If a Limit is out of bounds, stop the homing function
 				{
@@ -810,16 +806,14 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 				{
 					LowerMeasurementLimit = 0;
 					UpperMeasurementLimit = 3.7;
-					PeakEfficiency = StartEfficiency;
 
 				}
 				else {
-					LowerMeasurementLimit = YLowerLimit[i - 1] * LimitMultiplicator;
-					UpperMeasurementLimit = YUpperLimit[i - 1] * LimitMultiplicator;
-					PeakEfficiency = PeakCouplingEfficiencyY[i - 1];
+					LowerMeasurementLimit = YLowerLimit[i - 1];
+					UpperMeasurementLimit = YUpperLimit[i - 1];
 				}
 
-				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, PeakEfficiency, i);
+				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, i);
 
 				if (Error) //If a Limit is out of bounds, stop the homing function
 				{
@@ -841,16 +835,13 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 				{
 					LowerMeasurementLimit = 0;
 					UpperMeasurementLimit = 3.7;
-					PeakEfficiency = StartEfficiency;
-
 				}
 				else {
-					LowerMeasurementLimit = ZLowerLimit[i - 1] * LimitMultiplicator;
-					UpperMeasurementLimit = ZUpperLimit[i - 1] * LimitMultiplicator;
-					PeakEfficiency = PeakCouplingEfficiencyZ[i - 1];
+					LowerMeasurementLimit = ZLowerLimit[i - 1];
+					UpperMeasurementLimit = ZUpperLimit[i - 1];
 				}
 
-				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, PeakEfficiency, i);
+				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, i);
 
 				if (Error) //If a Limit is out of bounds, stop the homing function
 				{
@@ -872,16 +863,13 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 				{
 					LowerMeasurementLimit = -5.5;
 					UpperMeasurementLimit = 5.5;
-					PeakEfficiency = StartEfficiency;
-
 				}
 				else {
-					LowerMeasurementLimit = GonioLowerLimit[i - 1] * LimitMultiplicator;
-					UpperMeasurementLimit = GonioUpperLimit[i - 1] * LimitMultiplicator;
-					PeakEfficiency = PeakCouplingEfficiencyGonio[i - 1];
+					LowerMeasurementLimit = GonioLowerLimit[i - 1];
+					UpperMeasurementLimit = GonioUpperLimit[i - 1];
 				}
 
-				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, PeakEfficiency, i);
+				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, i);
 
 				if (Error) //If a Limit is out of bounds, stop the homing function
 				{
@@ -944,7 +932,7 @@ std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues(float Range) {
 	serial.ClearReadBuffer();
 
 	Sleep(3000);
-	const int BUFFER_SIZE = 1023;
+	const int BUFFER_SIZE = 512;
 
 		
 	char input_buffer[BUFFER_SIZE] = { NULL };
@@ -1036,7 +1024,7 @@ std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues(float Range) {
 
 	Results[0] = (VoltageSumZero / (static_cast<float>(2) * VoltageListZero.size()) * Range + VoltageSumOne / (static_cast<float>(2) * VoltageListZero.size()) * Range) / 32768;
 	Results[1] = (VoltageSumTwo / (static_cast<float>(2) * VoltageListZero.size()) * Range + VoltageSumThree / (static_cast<float>(2) * VoltageListZero.size()) * Range) / 32768;
-	Results[2] = (MeaurementArmVoltageToPower(Results[1]) * 100 / ReferenceArmVoltageToPower(Results[0])) - 10;
+	Results[2] = (MeaurementArmVoltageToPower(Results[1]) * 100 / ReferenceArmVoltageToPower(Results[0]));
 
 	serial.Close();
 
@@ -1215,7 +1203,7 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton7() {
 
 
 //Go from point to point, Measuring the Coupling Efficiency at every point, then evaluate where the maximum point is and returning the Lower and Upper Plateau edge, the middle and highest coupling efficiency.
-std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, float OldMaximum, int Itterator) {
+std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, int Itterator) {
 	
 
 
@@ -1316,8 +1304,7 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 	auto Maximum = std::max_element(std::begin(VoltageList), std::end(VoltageList));
 	std::vector<float> Results(4);
 	std::vector<float> PlateauResults;
-	//float Fraction = static_cast<float>(1) / 2;
-	PlateauResults = DetectPlateau(VoltageList, PositionList, OldMaximum, Fraction,AxisIndex);
+	PlateauResults = DetectPlateau(VoltageList, PositionList,AxisIndex);
 	Results[0] = PlateauResults[0];
 	Results[1] = PlateauResults[1];
 	Results[2] = PlateauResults[2];
@@ -1338,22 +1325,21 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 {
 	int RelativOrAbsolute = RelativeAndAbsoluteSelector.GetCurSel();
-	int Axis = AxisSelectorDropDownMenu.GetCurSel();
-	float Max = 100;
-	float LowerLim = ReadLowerLimitValue();
-	float UpperLim = ReadUpperLimitValue();
-	long Numb = ReadNumberOfPointsValue();
+	int AxisIndex = AxisSelectorDropDownMenu.GetCurSel();
+	float LowerLimit = ReadLowerLimitValue();
+	float UpperLimit = ReadUpperLimitValue();
+	long NumberOfPoints = ReadNumberOfPointsValue();
 	
 
 	//Differentiate between relative and absolute measurements
 	if (RelativOrAbsolute == 0) 
 	{//Absolute Measurement
-		MeasurementRun(Axis, LowerLim, UpperLim, Numb, Max, 1);
+		MeasurementRun(AxisIndex, LowerLimit, UpperLimit, NumberOfPoints, 1);
 
 	} else { 
 	//Relative Measurement, only possible if a optimum finding run was successfull 
 
-		MeasurementRun(Axis, Optimum[Axis] + LowerLim, Optimum[Axis] + UpperLim, Numb, Max, 0);
+		MeasurementRun(AxisIndex, Optimum[AxisIndex] + LowerLimit, Optimum[AxisIndex] + UpperLimit, NumberOfPoints, 0);
 
 	}
 
@@ -1373,5 +1359,4 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton3()
 	MoveActuatorToPosition(2, Optimum[2]);
 	MoveActuatorToPosition(3, Optimum[3]);
 
-	//Add fine Peak Detection
 }
