@@ -6,43 +6,66 @@ Date: 23.03.2023
 E-Mail Adress: kersten.mumme@uni-oldenburg.de or kersten.mumme@ewe.net	
 License: Feel free to use it for educational purposes, but contact me befor using it to make money, directly or indirectly. 
 
-This programm was created for my bachelors projects and consists of a simple user interface, a custom alghorithm to maximize the coupling efficiency of a free space laser beam into a fiber. 
+This programm was created for my bachelors projects and consists of a simple user interface, a custom alghorithm to maximize the 
+coupling efficiency of a free space laser beam into a fiber. 
 The theory behind the coupling is further explained in my thesis, but I can reiterate the main points here again.
-Problem: The coupling of a beam into a fiber is highly position dependent, on the scale of micrometer in accuracy. But exactly how sensitive is it and how do specially prepared fibers fare in comparison. 
+Problem: The coupling of a beam into a fiber is highly position dependent, on the scale of micrometer in accuracy. 
+	But exactly how sensitive is it and how do specially prepared fibers fare in comparison. 
 Solution: Build a setup that measures the coupling efficiency based on the position.
-Requirements: Automation of the homing process, which maximizes the coupling efficiency. Also automation of the measurements that follow. 
-Implementation: Using a NanoMax stage, made by Thorlabs, create a programm that handles the actuator movements to maximize the coupling efficiency. For this, a set of stepper motors was bought, with their respective 
-	control unit. As the NanoMax stage and the Piezo control unit was already availabe, the programm needed to also be able to talk with that. As the piezo controller was older then the newer software that Thorlabs uses
+Requirements: Automation of the homing process, which maximizes the coupling efficiency. 
+	Also automation of the measurements that follow. 
+Implementation: Using a NanoMax stage, made by Thorlabs, create a programm that handles the actuator movements to 
+	maximize the coupling efficiency. For this, a set of stepper motors was bought, with their respective 
+	control unit. As the NanoMax stage and the Piezo control unit was already availabe, the programm needed to also 
+	be able to talk with that. As the piezo controller was older then the newer software that Thorlabs uses
 	to communicate with the controllers, called "Kinesis", the old system needed to be used, which uses ActiveX control elements. 
 
 Adaptation Guide: 
 	1: Calibrate sensors and actuators. The transfer function used in this programm are specially chosen for the equipment used. 
-	2: Change IDs. The ActiveX control uses UUIDs to talk to specific controllers. The values filled in in the gui are the ones used in the original setup. If the controllers by Thorlabs do not have the UUIDs on the back of the box,
-		you can download the APT User software from their website, which automatically detects all connected controllers. Change the values in the Dialog page, to ensure that the programm is communicating with the correct controllers.
-	3: Flash the script to the Arduino. The library I used to decode the ADS1115 signal was helpfull, as in they provided the script I based mine on in the examples. For easiest adaptation, 
-		use the format of six digit values, split by !, with a & at the end of a dataset. An Example: 001345!001345!001345!001345&001345!001345!001345!001345&001345!001345!001345!001345&
+	2: Change IDs. The ActiveX control uses UUIDs to talk to specific controllers. The values filled in in the gui 
+		are the ones used in the original setup. If the controllers by Thorlabs do not have the UUIDs on the back of the box,
+		you can download the APT User software from their website, which automatically detects all connected controllers. 
+		Change the values in the Dialog page, to ensure that the programm is communicating with the correct controllers.
+	3: Flash the script to the Arduino. The library I used to decode the ADS1115 signal was helpfull, as in they 
+		provided the script I based mine on in the examples. For easiest adaptation, 
+		use the format of six digit values, split by !, with a & at the end of a dataset. An Example: 
+		001345!001345!001345!001345&001345!001345!001345!001345&001345!001345!001345!001345&
 	4: 
 
 Startup Guide:
-	1: Complete the setup. Make sure a fiber is loaded into the holder, connect (and turn on if required) the sensors to the AD converter.   
-	2: Connect the gonio controller, the piezo controller and the stepper controller to the PC running the programm. (And turn them on)
+	1: Complete the setup. Make sure a fiber is loaded into the holder, connect (and turn on if required) the sensors 
+		to the AD converter, turn on the laser.   
+	2: Connect the gonio controller, the piezo controller and the stepper controller to the PC running the programm. 
+		(And turn them on)
 	3: Connect arduino to PC and flash the script, if not already in memory.
-	4: Start programm and calibrate the actuators, using the corresponding button. After that, move the actuators (using the GoToPosition Button) to a point where some coupling occurs. This can be done by eye in most cases.
-		To check if you have some coupling, use the Manual Voltage Measurement Button. Note that as of the 23.03.2023, the baseline coupling efficiency is 10%. Once at least Efficiency * Fraction > 10% is reached,
-		you can start the homing process. 
-	5: During the Homing process, the programm will start to create folders in the OutputVectors folder. In the first itteration of the homing process, monitor if at least one point with coupling efficiency over 10% is measured,
-		as no such point will result in a broken homing process. After the first itteration is done and each axis has found a point of sufficient efficiency, the process can be left unattended. 
-	6: After some time, on the scale of one to three hours, the homing process should come to a halt, when either the MaxNumberOfItterations is met, or the improvements are sufficiently small to declare a successfull homing.
-		On the other hand, it may crash should the measurements range of an axis goes out of bounds, but that should not happen and has not in all homing processes. 
-		All relevant data will be dumped into the OutputVectors folder, with some number of subfolders named ItterationX, where X is the current itteration variable, from 0 to MaxNumberOfItterations. 
+	4: Start programm and calibrate the actuators, using the corresponding button. After that, move the actuators 
+		(using the GoToPosition Button) to a point where some coupling occurs. This can be done by eye in most cases.
+		To check if you have some coupling, use the Manual Voltage Measurement Button. Note that as of the 23.03.2023, 
+		the baseline coupling efficiency is 10%. Once at least Efficiency * Fraction > 10% is reached,
+		you can start the homing process. Second Note: Do not press the enter, escape or space keys during the operation of 
+		the gui, it will close it instantly without warning.
+	5: During the Homing process, the programm will start to create folders in the OutputVectors folder. In the first 
+		itteration of the homing process, monitor if at least one point with coupling efficiency over 10% is measured,
+		as no such point will result in a broken homing process. After the first itteration is done and each axis has 
+		found a point of sufficient efficiency, the process can be left unattended. 
+	6: After some time, on the scale of one to three hours, the homing process should come to a halt, when either the 
+		MaxNumberOfItterations is met, or the improvements are sufficiently small to declare a successfull homing.
+		On the other hand, it may crash should the measurements range of an axis goes out of bounds, but that should not 
+		happen and has not in all homing processes. 
+		All relevant data will be dumped into the OutputVectors folder, with some number of subfolders named ItterationX, 
+		where X is the current itteration variable, from 0 to MaxNumberOfItterations. 
 		There the Efficiency and Position Lists can be found, which were used by the programm to find the peak coupling efficiencies. 
-	7: Once the Homing process is done, the Return To Optimum button and relative Measurement Runs become available to the user. This is usefull when doing the final measurements, used to measure the coupling efficiency 
-		of the fiber per axis. Between each measurement run, press the return to Optimum button, as this is not done automatically. Otherwise the measurement will show the coupling efficiency outside of the beam, which is of no 
+	7: Once the Homing process is done, the Return To Optimum button and relative Measurement Runs become available 
+		to the user. This is usefull when doing the final measurements, used to measure the coupling efficiency 
+		of the fiber per axis. Between each measurement run, press the return to Optimum button, as this is not done 
+		automatically. Otherwise the measurement will show the coupling efficiency outside of the beam, which is of no 
 		great interst. 
-	8: Using the provided Matlab script, the Position- and Efficiency Lists are used to create a number of plots, showing the coupling efficiency measurements change over the itterations. 
+	8: Using the provided Matlab script, the Position- and Efficiency Lists are used to create a number of plots, 
+		showing the coupling efficiency measurements change over the itterations. 
 
 
-Should any question reguarding this code or the setup come up, I am happy to attempt to answer them, which may or may not happen as I am not a software developer, but more an engineer who also does programming from time to time. 
+Should any question reguarding this code or the setup come up, I am happy to attempt to answer them, which may or 
+may not happen as I am not a software developer, but more an engineer who also does programming from time to time. 
 
 */
 
@@ -1205,6 +1228,7 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 }
 
 //GoToPositionButton
+//This button is to be read horizontally, such that the Axis Selector and the GoToPosition Edit Box fall under its domain
 void CFiberAlignProjectVSDlg::ClickCommandbutton8()
 {
 
@@ -1231,13 +1255,14 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton2()
 //TestButton, used for debugging
 void CFiberAlignProjectVSDlg::ClickCommandbutton7() {
 
-
+	DebugNum1.put_Caption(L"Test");
 }
 
 
 
 
 //Go from point to point, Measuring the Coupling Efficiency at every point, then evaluate where the maximum point is and returning the Lower and Upper Plateau edge, the middle and highest coupling efficiency.
+//This button is meant to be read vertically, so that the axis selector, the Lower and UpperLimit and the Number of Points fall under its domain
 std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, int Itterator) {
 	
 
