@@ -7,12 +7,12 @@ E-Mail Adress: kersten.mumme@uni-oldenburg.de or kersten.mumme@ewe.net
 License: Feel free to use it for educational purposes, but contact me befor using it to make money, directly or indirectly. 
 
 This programm was created for my bachelors projects and consists of a simple user interface, a custom alghorithm to maximize the 
-coupling efficiency of a free space laser beam into a fiber. 
+coupling efficiency of a free space laser beam into an optical fiber. 
 The theory behind the coupling is further explained in my thesis, but I can reiterate the main points here again.
 Problem: The coupling of a beam into a fiber is highly position dependent, on the scale of micrometer in accuracy. 
-	But exactly how sensitive is it and how do specially prepared fibers fare in comparison. 
+	But exactly how sensitive is it and how do specially shaped fibers fare in comparison. 
 Solution: Build a setup that measures the coupling efficiency based on the position.
-Requirements: Automation of the homing process, which maximizes the coupling efficiency. 
+Requirements: Automation of the Peak finding process, which maximizes the coupling efficiency. 
 	Also automation of the measurements that follow. 
 Implementation: Using a NanoMax stage, made by Thorlabs, create a programm that handles the actuator movements to 
 	maximize the coupling efficiency. For this, a set of stepper motors was bought, with their respective 
@@ -33,29 +33,46 @@ Adaptation Guide:
 	4: 
 
 Startup Guide:
+	0: General rules. Never press Enter, Space, Escape or any other button except the number buttons and . (dot).
+		This will instantly close the program, with no way to return. 
+		Make sure that every edit field is filled out with appropirate values befor pressing the coresponding button. 
+		If you do not, or make any other mistake and get a Debug Error, a complete restart of the controller and the 
+		PC running the script is required. 
+		The drop down menues are only used for selecting options, not writing in them. 
+		While the script does something, that takes longer then 10 seconds, the program will show no feedback, while still being 
+		completely operational. No further inputs will be accepted until the script is done. 
 	1: Complete the setup. Make sure a fiber is loaded into the holder, connect (and turn on if required) the sensors 
 		to the AD converter, turn on the laser.   
 	2: Connect the gonio controller, the piezo controller and the stepper controller to the PC running the programm. 
 		(And turn them on)
 	3: Connect arduino to PC and flash the script, if not already in memory.
 	4: Start programm and calibrate the actuators, using the corresponding button. After that, move the actuators 
-		(using the GoToPosition Button) to a point where some coupling occurs. This can be done by eye in most cases.
-		To check if you have some coupling, use the Manual Voltage Measurement Button. Note that as of the 23.03.2023, 
-		the baseline coupling efficiency is 10%. Once at least Efficiency * Fraction > 10% is reached,
-		you can start the homing process. Second Note: Do not press the enter, escape or space keys during the operation of 
-		the gui, it will close it instantly without warning.
-	5: During the Homing process, the programm will start to create folders in the OutputVectors folder. In the first 
-		itteration of the homing process, monitor if at least one point with coupling efficiency over 10% is measured,
-		as no such point will result in a broken homing process. After the first itteration is done and each axis has 
+		(using the GoToPosition Button) to a point where some coupling occurs. While this takes some time,
+		roughly 10 minutes for me, this is a time saving measure. I could have programmed it to make a mesh of the measurement 
+		range and find the rough position, it would have taken to long to make the mesh tight enough, that it would have extend the 
+		runtime extensively. 
+		This can be done by eye in most cases. To check if you have some coupling, use the Manual Voltage Measurement Button. 
+		Note that as of the 23.03.2023, the baseline coupling efficiency is 10%. Once at least Efficiency * Fraction > 10% is reached,
+		you can start the Peak finding process. 
+	5: During the Peak finding process, the programm will start to create folders in the OutputVectors folder. In the first 
+		itteration of the Peak finding process, monitor if at least one point with coupling efficiency over 10% is measured,
+		as no such point will result in a broken Peak finding process. After the first itteration is done and each axis has 
 		found a point of sufficient efficiency, the process can be left unattended. 
-	6: After some time, on the scale of one to three hours, the homing process should come to a halt, when either the 
-		MaxNumberOfItterations is met, or the improvements are sufficiently small to declare a successfull homing.
+	6: After some time, on the scale of one to three hours, the Peak finding process should come to a halt, when either the 
+		MaxNumberOfItterations is met, or the improvements are sufficiently small to declare a successfull peak finding.
 		On the other hand, it may crash should the measurements range of an axis goes out of bounds, but that should not 
-		happen and has not in all homing processes. 
+		happen and has not in all previous attempts. 
 		All relevant data will be dumped into the OutputVectors folder, with some number of subfolders named ItterationX, 
 		where X is the current itteration variable, from 0 to MaxNumberOfItterations. 
-		There the Efficiency and Position Lists can be found, which were used by the programm to find the peak coupling efficiencies. 
-	7: Once the Homing process is done, the Return To Optimum button and relative Measurement Runs become available 
+		There the Efficiency and Position Lists can be found, which were used by the programm to find the peak coupling efficiencies.
+		The files are all dimensionless, but are internally consistent. The efficiency files all contain percentage values,
+		where the position files contain mm values for the X,Y,Z axes and degree for the goniometer.
+		The other files created by the script are meant for bugfixing and also logging of parameters. 
+		The LowerLimit and UpperLimit files contain the positions of the measurement range per itteration in mm and degree respectively.
+		The PeakCouplingEfficiency files contain the highest coupling efficiency per axis per itteration in percent.
+		The HighestCouplingEfficiencyPosition denotes the position where the Peak Coupling Efficiency was reached, in mm and degree respectively.
+
+		7: Once the Peak finding process is done, the Return To Optimum button and relative Measurement Runs become available 
 		to the user. This is usefull when doing the final measurements, used to measure the coupling efficiency 
 		of the fiber per axis. Between each measurement run, press the return to Optimum button, as this is not done 
 		automatically. Otherwise the measurement will show the coupling efficiency outside of the beam, which is of no 
@@ -89,6 +106,9 @@ may not happen as I am not a software developer, but more an engineer who also d
 #include <algorithm>
 #include <numeric>
 #include <direct.h> 
+#include <ctime> 
+#include <cstdio>
+
 
 
 
@@ -137,13 +157,13 @@ float RefractiveIndexFiberCore = 1.5;    //Equation https://en.wikipedia.org/wik
 float Transmissivity = 1 - pow( abs((RefractiveIndexFiberCore - RefractiveIndexAir)/(RefractiveIndexFiberCore + RefractiveIndexAir)), 2);
 
 
-int NumberOfDataPoints = 35; //Number Of Measurements Made per run in the Homing Function
+int NumberOfDataPoints = 35; //Number Of Measurements Made per run in the Peak finding Function
 int MaxNumberOfItteration = 20; //Used to stop programm should too many itterations have happend
-int MinNumberOfItteration = 5; //The Homing process should at least do this many itterations bevor the condition StopLoop comes into play
+int MinNumberOfItteration = 5; //The Peak finding process should at least do this many itterations bevor the condition StopLoop comes into play
 float Fraction = static_cast<float>(1) / 2; //Used for detecting the Plateaus edges
 bool Error = false; //Used to stop programm in case of a limit error or simular situations
-bool StopLoop = false; //Used to stop homing, when the condition for too little improvement is met 
-float ImprovementLimit = 0.02; //Stops the Homing process if 1 - (NewCouplingEfficiency / OldCouplingEfficiency) < ImprovementLimit  
+bool StopLoop = false; //Used to stop Peak finding, when the condition for too little improvement is met 
+float ImprovementLimit = 0.02; //Stops the Peak finding process if 1 - (NewCouplingEfficiency / OldCouplingEfficiency) < ImprovementLimit  
 
 
 std::vector<float> Optimum = {0,0,0,0}; //Used for the return to Optimum button
@@ -159,18 +179,18 @@ float YPiezoPosition = 0;
 float ZPiezoPosition = 0;
 
 
-std::vector<float> PeakCouplingEfficiencyX(MaxNumberOfItteration); //Used to track the coupling efficiency of the axis over time
+std::vector<float> PeakCouplingEfficiencyX(MaxNumberOfItteration); //Used to track the coupling efficiency of the axis over itterations
 std::vector<float> PeakCouplingEfficiencyY(MaxNumberOfItteration);
 std::vector<float> PeakCouplingEfficiencyZ(MaxNumberOfItteration);
 std::vector<float> PeakCouplingEfficiencyGonio(MaxNumberOfItteration);
 
-std::vector<float> XHighestEfficiencyPosition(MaxNumberOfItteration); //Used to track the point of highest coupling efficiency
+std::vector<float> XHighestEfficiencyPosition(MaxNumberOfItteration); //Used to track the point of highest coupling efficiency over itterations
 std::vector<float> YHighestEfficiencyPosition(MaxNumberOfItteration);
 std::vector<float> ZHighestEfficiencyPosition(MaxNumberOfItteration);
 std::vector<float> GonioHighestEfficiencyPosition(MaxNumberOfItteration);
 
 
-std::vector<float> XLowerLimit(MaxNumberOfItteration); //Track The Lower and Upper Limits per axes 
+std::vector<float> XLowerLimit(MaxNumberOfItteration); //Track The Lower and Upper Limits per axes over itterations
 std::vector<float> XUpperLimit(MaxNumberOfItteration);
 
 std::vector<float> YLowerLimit(MaxNumberOfItteration);
@@ -327,7 +347,7 @@ long FindEdgeIndices(std::vector<float> List, float Maximum, float Fraction, boo
 
 //Detects the Plateau, depending on the Efficiency List, the Position List, the Maxima and the Fraction
 //The First Value is the lower Plateau Edge, the Second is the Higher Plateau Edge, 
-// and the Third is the Position of highest Efficiency.
+//the Third is the Position of highest Efficiency and the fourth is the maximum coupling efficiency.
 std::vector<float> DetectPlateau(std::vector<float> EfficiencyList, std::vector<float> PositionList, int AxisIndex) {
 
 	std::vector<float> Result(4);
@@ -512,14 +532,20 @@ float CFiberAlignProjectVSDlg::StepperCorrection(long AxisIndex, float StepperMo
 //The Axis Index is the same as in the drop down menu of the AxisSelector
 //0:X,1:Y,2:Z,3:Gonio
 float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Position) {
-
+	
+	if (Position > 10) { //Stop Function if value is to large, everything above a certain value will break the SW limits, due 
+		DebugNum1.put_Caption(L"Too Large Input Value!");			 //to the position correcton curve I use
+		return 0;
+	}
 
 	switch (AxisIndex) {
-	case 0: {
+	case 0: {	
 
 		XStepperPosition = Position; //Kept for future changes, to enable the piezos to also be moved
 		StepperX.SetAbsMovePos(ChanID, StepperCorrection(AxisIndex, Position));
-		StepperX.MoveAbsolute(ChanID, true);
+		StepperX.MoveAbsolute(ChanID, true); //the second argument of the MoveAbsolute function depicts the time when the method returns
+											// true means that it returns once the movement is completed, false directly after the movement
+											// was initiated.
 	}
 		  break;
 
@@ -774,7 +800,7 @@ END_EVENTSINK_MAP()
 
 
 
-//Checking if the difference in the coupling efficiency is sufficiently small to stop the homing process
+//Checking if the difference in the coupling efficiency is sufficiently small to stop the Peak finding process
 bool CheckCouplingEfficiencyIncrease(float OldEfficiency, float NewEfficiency) {
 
 	bool Output = false;
@@ -785,12 +811,12 @@ bool CheckCouplingEfficiencyIncrease(float OldEfficiency, float NewEfficiency) {
 }
 
 
-//StartHoming button
+//StartPeakFinding button
 //This function results in a series of movements which will systematically maximize the coupling efficiency, until either the improvement limit is met, the number of allowed itterations is met or 
 //the measurement run function encounters an error. 
-//IMPORTANT NOTE: Should the homing function not find at least one value with some amount of coupling per axis in the first itteration, this function will not work. 
+//IMPORTANT NOTE: Should the Peak finding function not find at least one value with some amount of coupling per axis in the first itteration, this function will not work. 
 //As it is a gradual improvement, the initial values are important to the outcome.
-//So to ensure proper function, set the stage to a point of at least some coupling efficiency, at least Coupling efficiency * Fraction > 10%, bevor starting the homing process.
+//So to ensure proper function, set the stage to a point of at least some coupling efficiency, at least Coupling efficiency * Fraction > 10%, bevor starting the Peak finding process.
 bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 {
 	float LowerMeasurementLimit;
@@ -811,11 +837,12 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 		if (i >= MinNumberOfItteration && StopLoop) //Check if the ImprovementLimit is met
 		{
-			DebugNum2.put_Caption(L"Stopped Homing because of StopLoop, not enough improvements");
+			DebugNum2.put_Caption(L"Stopped Peak finding because of StopLoop, not enough improvements");
 			Optimum[0] = XStepperPosition; //The Optimum Prameter are written to the Optimum List, enabling the user to use the 
 			Optimum[1] = YStepperPosition; //return to Optimum Button and the Relative Measurement function
 			Optimum[2] = ZStepperPosition;
 			Optimum[3] = GonioStepperPosition;
+			DebugNum1.put_Caption(L"Peak Found! ");
 
 			break;
 		}
@@ -837,9 +864,9 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, i);
 
-				if (Error) //If a Limit is out of bounds, stop the homing function. 
+				if (Error) //If a Limit is out of bounds, stop the Peak finding function. 
 				{
-					DebugNum1.put_Caption(L"HomingProcess stopped because of Error");
+					DebugNum1.put_Caption(L"Peak finding stopped because of Error");
 					return false;
 				}
 
@@ -866,9 +893,9 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, i);
 
-				if (Error) //If a Limit is out of bounds, stop the homing function
+				if (Error) //If a Limit is out of bounds, stop the Peak finding function
 				{
-					DebugNum1.put_Caption(L"HomingProcess stopped because of Error");
+					DebugNum1.put_Caption(L"Peak finding stopped because of Error");
 					return false;
 				}
 
@@ -892,11 +919,13 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 					UpperMeasurementLimit = ZUpperLimit[i - 1];
 				}
 
+
+
 				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, i);
 
-				if (Error) //If a Limit is out of bounds, stop the homing function
+				if (Error) //If a Limit is out of bounds, stop the Peak finding function
 				{
-					DebugNum1.put_Caption(L"HomingProcess stopped because of Error");
+					DebugNum1.put_Caption(L"Peak finding stopped because of Error");
 					return false;
 				}
 
@@ -922,9 +951,9 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 				TempVector = MeasurementRun(j, LowerMeasurementLimit, UpperMeasurementLimit, NumberOfDataPoints, i);
 
-				if (Error) //If a Limit is out of bounds, stop the homing function
+				if (Error) //If a Limit is out of bounds, stop the Peak finding function
 				{
-					DebugNum1.put_Caption(L"HomingProcess stopped because of Error");
+					DebugNum1.put_Caption(L"Peak finding stopped because of Error");
 					return false;
 				}
 
@@ -1047,7 +1076,7 @@ std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues() {
 		return GetVoltageValues();
 		//return Results;
 	}
-	//DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(FirstTimeSplit.size())));
+	DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(FirstTimeSplit.size())));
 
 
 	//Once all Faulty Datasets are removed and enough made it through, they are split into 4 vectors containing the values for all ADS Inputs
@@ -1107,21 +1136,21 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton6()
 //This needs to be done at the start of the process, as otherwise the actuators do not behave properly. 
 void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 {
-
+	
 	//Create Constants for Homing and Velocity Behavior
-	long HomeDirection = 2; //Home in the negative direction
-	long HomeLimitSwitch = 1;	
+	long HomeDirection = 2; //Enumarator for the Homing direction, 1 meaning forward direction, 2 meaning reverse direction
+	long HomeLimitSwitch = 1; //Enumerator for the swtich position, 1 for reverse direction, 4 for forward direction
 	float HomeVelocity = 0.5; //Sets homing speed
-	long StageUnits = 1; //Sets Units to mm instead of Deg
+	long StageUnits = 1; //Enumerator for actuator units, 1 for mm, 2 for degree
 	float PitchXYZ = 0.5; 
 	float PitchGonio = 1; 
-	long DirectionSense = 1;
+	long DirectionSense = 1; //Enumerator for direction sense, 1 meaning forward direction, 2 meaning reverse direction
 	long ReverseLimitSwitch = 2; //Sets Limit Switch behavior, 1 = ignore, 2 = switch closes on contact
 	long ForwardLimitSwitch = 1;
-	float MinVelo = 0; 
-	float AccelerationXYZ = 4; //Sets maximum acceleration for the motors
-	float AccelerationGonio = 1.5;	//Sets maximum acceleration for the gonio stage
-	float MaxVelo = 2;	//Sets maximum velocity for the motors
+	float MinVelo = 0; //Sets minimum velocity for the motors in mm / s
+	float AccelerationXYZ = 4; //Sets maximum acceleration for the motors in mm / s^2
+	float AccelerationGonio = 1.5;	//Sets maximum acceleration for the gonio stage in mm / s^2
+	float MaxVelo = 2;	//Sets maximum velocity for the motors in mm / s
 	float StepperMiddlePosition = 1.9; //Sets middle position 
 	long SoftwareLimitSwitchBehavior = 2; //Stops motor instantly, should a software limit switch be engaged
 
@@ -1132,9 +1161,9 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 	float ZeroOffsetZ = 2.45;
 	float ZeroOffsetGonio = 7.55;
 
-	long PiezoControlMode = 4; //Closed Loop Mode, using strain gauges to determine the position and a PI controller to counteract any errors
+	long PiezoControlMode = 4; //Enumerator for Piezo control mode, 1 = open loop, 2 = closed loop, 3 = open loop smooth, 4 = closed loop smooth
 	float PiezoMiddlePosition = 10;
-	long VoltMicronOutputMode = 2; //Sets the control to show the position instead of the voltage applied to the piezos 
+	long VoltMicronOutputMode = 2; //Enumerator for the display mode, 1 = position, 2 = voltage, 3 = force 
 
 	//Sets the Constants for the PI controller. This does not seem to work, as no behavior as expected from either a proportional or integral control unit
 	long PConstant = 50;
@@ -1222,8 +1251,14 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 	PiezoY.SetPosOutput(ChanID, PiezoMiddlePosition);
 	PiezoZ.SetPosOutput(ChanID, PiezoMiddlePosition);
 
+	//Set SoftWare behavior again, as it was lost since the first time setting it 
+	StepperX.SetSWPosLimits(ChanID, MinPosX, MaxPosX, SoftwareLimitSwitchBehavior);
+	StepperY.SetSWPosLimits(ChanID, MinPosY, MaxPosY, SoftwareLimitSwitchBehavior);
+	StepperZ.SetSWPosLimits(ChanID, MinPosZ, MaxPosZ, SoftwareLimitSwitchBehavior);
+	StepperGonio.SetSWPosLimits(ChanID, MinPosGonio, MaxPosGonio, SoftwareLimitSwitchBehavior);
 
 	Sleep(13000); //Wait until all movement has stopped bevor stopping this function
+
 
 }
 
@@ -1252,10 +1287,15 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton2()
 
 
 
+
 //TestButton, used for debugging
 void CFiberAlignProjectVSDlg::ClickCommandbutton7() {
+	time_t begin, end;
+	time(&begin);
 
-	DebugNum1.put_Caption(L"Test");
+	time(&end);
+	double difference = difftime(end, begin) / 30;
+	DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(difference)));
 }
 
 
@@ -1384,6 +1424,7 @@ std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float 
 //Gets the values from the AxisSelector, the RelativeAndAbsoluteSelector, the Lower- and UpperLimit and the NumberOfPoints edit field
 bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 {
+	
 	int RelativOrAbsolute = RelativeAndAbsoluteSelector.GetCurSel();
 	int AxisIndex = AxisSelectorDropDownMenu.GetCurSel();
 	float LowerLimit = ReadLowerLimitValue();
@@ -1404,6 +1445,8 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 	}
 
 
+
+
 	return true;
 
 }
@@ -1412,7 +1455,7 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton4()
 
 
 //Return to the point of highest coupling efficiency
-//Can only properly be called after a successfull homing run.
+//Can only properly be called after successfull Peak finding.
 void CFiberAlignProjectVSDlg::ClickCommandbutton3()
 {
 	MoveActuatorToPosition(0, Optimum[0]);
