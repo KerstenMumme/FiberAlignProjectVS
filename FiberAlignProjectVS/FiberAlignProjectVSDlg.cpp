@@ -610,9 +610,9 @@ void CFiberAlignProjectVSDlg::OnCbnSelchangeCombo1()
 		GoToPosUnitLabel.put_Caption(L"Deg");
 	}
 	else {
-		LowerLimitUnitLabel.put_Caption(L"Error");
-		UpperLimitUnitLabel.put_Caption(L"Error");
-		GoToPosUnitLabel.put_Caption(L"Error");
+		LowerLimitUnitLabel.put_Caption(L"Error in Unit Selector");
+		UpperLimitUnitLabel.put_Caption(L"Error in Unit Selector");
+		GoToPosUnitLabel.put_Caption(L"Error in Unit Selector");
 	}
 
 }
@@ -854,8 +854,8 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 			case 0: {
 				if (i == 0) //The first itteration needs initial values for the lower and upper limit. This is in this case the entire measurement range, but could also be made smaller, if the 
 				{			// region where the coupling occurs is already somewhat known
-					LowerMeasurementLimit = 0;
-					UpperMeasurementLimit = 3.7; 
+					LowerMeasurementLimit = XStepperPosition - 0.5;
+					UpperMeasurementLimit = XStepperPosition + 0.5;
 				}
 				else {
 					LowerMeasurementLimit = XLowerLimit[i - 1];
@@ -882,8 +882,8 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 				if (i == 0)
 				{
-					LowerMeasurementLimit = 0;
-					UpperMeasurementLimit = 3.7;
+					LowerMeasurementLimit = YStepperPosition - 0.3;
+					UpperMeasurementLimit = YStepperPosition + 0.3;
 
 				}
 				else {
@@ -911,8 +911,8 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 				if (i == 0)
 				{
-					LowerMeasurementLimit = 0;
-					UpperMeasurementLimit = 3.7;
+					LowerMeasurementLimit = ZStepperPosition - 0.3;
+					UpperMeasurementLimit = XStepperPosition + 0.3;
 				}
 				else {
 					LowerMeasurementLimit = ZLowerLimit[i - 1];
@@ -941,8 +941,8 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 				if (i == 0)
 				{
-					LowerMeasurementLimit = -5.5;
-					UpperMeasurementLimit = 5.5;
+					LowerMeasurementLimit = GonioStepperPosition - 1;
+					UpperMeasurementLimit = GonioStepperPosition + 1;
 				}
 				else {
 					LowerMeasurementLimit = GonioLowerLimit[i - 1];
@@ -1121,11 +1121,38 @@ std::vector<float> CFiberAlignProjectVSDlg::GetVoltageValues() {
 
 
 
-//Initializing the Arduino Connection and reading a number of values
+//Performs long time stability measurement to check how stable the coupling efficiency calculation is in respect to the fluctuations of the laser
 void CFiberAlignProjectVSDlg::ClickCommandbutton6()
 {
 
+	std::vector<long int> Time;
+	std::vector<float> MeasurementArmPower;
+	std::vector<float> ReferenceArmPower;
+	std::vector<float> CouplingEfficiency;
+	size_t NumberOfMeasurements = 700;
+	float DelayBetweenMeasurements = 7; //Seconds
+	std::vector<float> TempVector;
 
+
+	for (size_t i = 0; i < NumberOfMeasurements; i++)
+	{
+
+		TempVector = GetVoltageValues();
+		MeasurementArmPower[i] = MeaurementArmVoltageToPower(TempVector[1]);
+		ReferenceArmPower[i] = ReferenceArmVoltageToPower(TempVector[0]);
+		CouplingEfficiency[i] = TempVector[2];
+		Sleep(DelayBetweenMeasurements * 1000);
+	}
+
+	SaveToFile(MeasurementArmPower,"OutputVectors//StabilityMeasurement","MeasurementArmPower");
+	SaveToFile(ReferenceArmPower, "OutputVectors//StabilityMeasurement", "ReferenceArmPower");
+	SaveToFile(CouplingEfficiency, "OutputVectors//StabilityMeasurement", "CouplingEfficiency");
+
+	Sleep(1000);
+
+	std::ofstream output_file("OutputVectors//StabilityMeasurement/Time.txt");
+	std::ostream_iterator<long int> output_iterator(output_file, "\n");
+	std::copy(Time.begin(), Time.end(), output_iterator);
 
 
 }
