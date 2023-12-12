@@ -139,17 +139,34 @@ long ChanID = 0; //Channel ID is used by Thorlabs for their two Channel units, a
 				//This variable is of no interest for this script, as the three channel units do not use it and the one channel unit requires a 
 				//Value of 0.
 
-float MinPosX = -1; //Setting the physical boundries of the stage, to ensure that the stepper motors do not crash into the housing of the stage,
-float MaxPosX = 3.8;// Damaging both parts 
+//float MinPosX = -1; //Setting the physical boundries of the stage, to ensure that the stepper motors do not crash into the housing of the stage,
+//float MaxPosX = 3.8;// Damaging both parts 
+//
+//float MinPosY = -1;
+//float MaxPosY = 3.8;
+//
+//float MinPosZ = -1;
+//float MaxPosZ = 3.8;
+//
+//float MinPosGonio = -7; //The Limits for the gonio are set in mm, as thats the units the stage uses. In the rest of this programm the unit for the gonio is always in degree, only converted to mm for moving the stage.
+//float MaxPosGonio = 6;
 
-float MinPosY = -1;
-float MaxPosY = 3.8;
 
-float MinPosZ = -1;
-float MaxPosZ = 3.8;
+struct LimitStructs{ //Struct for Actuator Limits
+	float Lower;	//Setting the physical boundries of the stage, to ensure that the stepper motors do not crash into the housing of the stage,
+					//float MaxPosX = 3.8;// Damaging both parts 
+	float Upper;
 
-float MinPosGonio = -7; //The Limits for the gonio are set in mm, as thats the units the stage uses. In the rest of this programm the unit for the gonio is always in degree, only converted to mm for moving the stage.
-float MaxPosGonio = 6;
+};
+
+const struct LimitStructs XLimits = { -1, 3.8 };
+const struct LimitStructs YLimits = { -1, 3.8 };
+const struct LimitStructs ZLimits = { -1, 3.8 };
+const struct LimitStructs GonioLimits = { -7, 6 };
+
+LimitStructs LimitArray[4] = { XLimits, YLimits, ZLimits, GonioLimits };
+
+
 
 										//Determine Backreflections from Fiber to Air interface
 float RefractiveIndexAir = 1.00027798; //https://refractiveindex.info/?shelf=other&book=air&page=Ciddor
@@ -354,33 +371,15 @@ std::vector<float> DetectPlateau(std::vector<float> EfficiencyList, std::vector<
 	auto Maximum = std::max_element(std::begin(EfficiencyList), std::end(EfficiencyList)); //Finding the highest coupling efficiency in the EfficiencyList 
 	int LowerLimitIndex = FindEdgeIndices(EfficiencyList, *Maximum, Fraction, true);
 	int UpperLimitIndex = FindEdgeIndices(EfficiencyList, *Maximum, Fraction, false);
-	float AllowedLowerLimit = 0;
-	float AllowedUpperLimit = 0;
+
+
+	//Setting the physical limits for the stage, to ensure the stepper motors do not crash into the housing 
+
+	float AllowedLowerLimit = LimitArray[AxisIndex].Lower;
+	float AllowedUpperLimit = LimitArray[AxisIndex].Upper;
 	
 
-	switch (AxisIndex) { //Setting the physical limits for the stage, to ensure the stepper motors do not crash into the housing 
-	case 0: {
-		AllowedLowerLimit = 0;
-		AllowedUpperLimit = MaxPosX;
-		break;
-	}
-	case 1: {
-		AllowedLowerLimit = 0;
-		AllowedUpperLimit = MaxPosY;
-		break;
-	}
-	case 2: {
-		AllowedLowerLimit = 0;
-		AllowedUpperLimit = MaxPosZ;
-		break;
-	}
-	case 3: {
-		AllowedLowerLimit = -9;
-		AllowedUpperLimit = 9;
-		break;
-	}
-	default: {}
-	}
+	
 
 	if (LowerLimitIndex == 0 && PositionList[LowerLimitIndex] - 0.1 > AllowedLowerLimit) //If the edge of the plateau is at the lower end of the measurement region, extend the region further in that direction
 	{
@@ -730,6 +729,7 @@ BOOL CFiberAlignProjectVSDlg::OnInitDialog()
 	UpperLimitUnitLabel.put_Caption(L"mm");
 	GoToPosUnitLabel.put_Caption(L"mm");
 
+
 	return TRUE;  
 }
 
@@ -803,9 +803,8 @@ END_EVENTSINK_MAP()
 //Checking if the difference in the coupling efficiency is sufficiently small to stop the Peak finding process
 bool CheckCouplingEfficiencyIncrease(float OldEfficiency, float NewEfficiency) {
 
-	bool Output = false;
 
-	Output = abs(1 - (NewEfficiency / OldEfficiency)) < ImprovementLimit ;
+	bool Output = abs(1 - (NewEfficiency / OldEfficiency)) < ImprovementLimit ;
 
 	return Output;
 }
@@ -1206,10 +1205,10 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 
 
 	//Overriding standard Settings for Software Limits, Pitch and Direction Sense
-	StepperX.SetStageAxisInfo(ChanID, MinPosX, MaxPosX, StageUnits, PitchXYZ, DirectionSense);
-	StepperY.SetStageAxisInfo(ChanID, MinPosY, MaxPosY, StageUnits, PitchXYZ, DirectionSense);
-	StepperZ.SetStageAxisInfo(ChanID, MinPosZ, MaxPosZ, StageUnits, PitchXYZ, DirectionSense);
-	StepperGonio.SetStageAxisInfo(ChanID, MinPosGonio, MaxPosGonio, StageUnits, PitchGonio, DirectionSense);
+	StepperX.SetStageAxisInfo(ChanID, LimitArray[0].Lower, LimitArray[0].Upper, StageUnits, PitchXYZ, DirectionSense);
+	StepperY.SetStageAxisInfo(ChanID, LimitArray[1].Lower, LimitArray[1].Upper, StageUnits, PitchXYZ, DirectionSense);
+	StepperZ.SetStageAxisInfo(ChanID, LimitArray[2].Lower, LimitArray[2].Upper, StageUnits, PitchXYZ, DirectionSense);
+	StepperGonio.SetStageAxisInfo(ChanID, LimitArray[3].Lower, LimitArray[3].Upper, StageUnits, PitchGonio, DirectionSense);
 
 	
 	//Setting Homing Parameters
@@ -1262,10 +1261,10 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 	StepperZ.SetAbsMovePos(ChanID, StepperMiddlePosition);
 
 	//Set SoftWare behavior again, as it was lost since the first time setting it 
-	StepperX.SetSWPosLimits(ChanID, MinPosX, MaxPosX, SoftwareLimitSwitchBehavior);
-	StepperY.SetSWPosLimits(ChanID, MinPosY, MaxPosY, SoftwareLimitSwitchBehavior);
-	StepperZ.SetSWPosLimits(ChanID, MinPosZ, MaxPosZ, SoftwareLimitSwitchBehavior);
-	StepperGonio.SetSWPosLimits(ChanID, MinPosGonio, MaxPosGonio, SoftwareLimitSwitchBehavior);
+	StepperX.SetSWPosLimits(ChanID, LimitArray[0].Lower, LimitArray[0].Upper, SoftwareLimitSwitchBehavior);
+	StepperY.SetSWPosLimits(ChanID, LimitArray[1].Lower, LimitArray[1].Upper, SoftwareLimitSwitchBehavior);
+	StepperZ.SetSWPosLimits(ChanID, LimitArray[2].Lower, LimitArray[2].Upper, SoftwareLimitSwitchBehavior);
+	StepperGonio.SetSWPosLimits(ChanID, LimitArray[3].Lower, LimitArray[3].Upper, SoftwareLimitSwitchBehavior);
 
 	//Do the Absolute Movement to the middle position
 	StepperX.MoveAbsolute(ChanID, false);
@@ -1279,10 +1278,10 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton5()
 	PiezoZ.SetPosOutput(ChanID, PiezoMiddlePosition);
 
 	//Set SoftWare behavior again, as it was lost since the first time setting it 
-	StepperX.SetSWPosLimits(ChanID, MinPosX, MaxPosX, SoftwareLimitSwitchBehavior);
-	StepperY.SetSWPosLimits(ChanID, MinPosY, MaxPosY, SoftwareLimitSwitchBehavior);
-	StepperZ.SetSWPosLimits(ChanID, MinPosZ, MaxPosZ, SoftwareLimitSwitchBehavior);
-	StepperGonio.SetSWPosLimits(ChanID, MinPosGonio, MaxPosGonio, SoftwareLimitSwitchBehavior);
+	StepperX.SetSWPosLimits(ChanID, LimitArray[0].Lower, LimitArray[0].Upper, SoftwareLimitSwitchBehavior);
+	StepperY.SetSWPosLimits(ChanID, LimitArray[1].Lower, LimitArray[1].Upper, SoftwareLimitSwitchBehavior);
+	StepperZ.SetSWPosLimits(ChanID, LimitArray[2].Lower, LimitArray[2].Upper, SoftwareLimitSwitchBehavior);
+	StepperGonio.SetSWPosLimits(ChanID, LimitArray[3].Lower, LimitArray[3].Upper, SoftwareLimitSwitchBehavior);
 
 	Sleep(13000); //Wait until all movement has stopped bevor stopping this function
 
@@ -1317,12 +1316,18 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton2()
 
 //TestButton, used for debugging
 void CFiberAlignProjectVSDlg::ClickCommandbutton7() {
-	time_t begin, end;
-	time(&begin);
+	//time_t begin, end;
+	//time(&begin);
 
-	time(&end);
-	double difference = difftime(end, begin) / 30;
-	DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(difference)));
+	//time(&end);
+	//double difference = difftime(end, begin) / 30;
+	//DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(difference)));
+
+	int TestIndex = 3;
+
+	
+	DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(LimitArray[TestIndex].Lower)));
+
 }
 
 
@@ -1330,118 +1335,80 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton7() {
 
 //Go from point to point, Measuring the Coupling Efficiency at every point, then evaluate where the maximum point is and returning the Lower and Upper Plateau edge, the middle and highest coupling efficiency.
 //This button is meant to be read vertically, so that the axis selector, the Lower and UpperLimit and the Number of Points fall under its domain
-std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, int Itterator) {
+std::vector<float> CFiberAlignProjectVSDlg::MeasurementRun(int AxisIndex, float LowerLimit, float UpperLimit, int NumberOfPoints, int Itterator) 
+{
 	
-
-
 	std::vector<float> PositionList = NumberListFunction(LowerLimit, UpperLimit, NumberOfPoints); //Create the position list, containing NUmberOfPoints points between LowerLimit and UpperLimit
-	std::vector<float> EfficiencyList(NumberOfPoints); 
-	std::vector<float> TempVoltList(3);
-	std::string AxisString;
 
-	//Add the Axis to the File Name
-	switch (AxisIndex) {
-	case 0: {
-		AxisString = "X";
 
-		break;
-	}
-	case 1: {
-		AxisString = "Y";
+		std::vector<std::string> AxisStringVector{ "X", "Y", "Z", "Gonio" };
+		std::vector<float> EfficiencyList(NumberOfPoints);
+		std::vector<float> TempVoltList(3);
+		
 
-		break;
-	}
-	case 2: {
-		AxisString = "Z";
+		//Add the Axis to the File Name
+		std::string AxisString = AxisStringVector[AxisIndex];
 
-		break;
-	}
-	case 3: {
-		AxisString = "Gonio";
-			
-		break;
-	}
-	default: {DebugNum3.put_Caption(L"Axis Index Error"); }
-	}
 
-	float AllowedLowerLim = 0;
-	float AllowedUpperLim = 0;
+		//Set Allowed Limits, which are compared to the determined Limits, to make sure they are within bounds
+		//While the stage can move into the negative values, it is not used as motor movement below 0mm results in no movement of the stage.
+		//Limits in degree, which is why they are different from Min- and MaxPosGonio
+		float AllowedLowerLim = LimitArray[AxisIndex].Lower;
+		float AllowedUpperLim = LimitArray[AxisIndex].Upper;
 
-	//Set Allowed Limits, which are compared to the determined Limits, to make sure they are within bounds
-	switch (AxisIndex) {
-	case 0: {
-		AllowedLowerLim = 0; //While the stage can move into the negative values, it is not used as motor movement below 0mm results in no movement of the stage.
-		AllowedUpperLim = MaxPosX;
-		break;
-	}
-	case 1: {
-		AllowedLowerLim = 0;
-		AllowedUpperLim = MaxPosY;
-		break;
-	}
-	case 2: {
-		AllowedLowerLim = 0; 
-		AllowedUpperLim = MaxPosZ;
-		break;
-	}
-	case 3: {
-		AllowedLowerLim = -9; //Limits in degree, which is why they are different from Min- and MaxPosGonio
-		AllowedUpperLim = 9;
-		break;
-	}
-	default: {}
-	}
-	//Stop run from starting if the stage would go out of limits
-	if (LowerLimit < AllowedLowerLim || UpperLimit > AllowedUpperLim)
-	{
-		DebugNum1.put_Caption(L"Limits for Measurement Run Out of Bounds");
-		std::vector<float> Results = {0,0,0,0};
-		Error = true;
+
+		//Stop run from starting if the stage would go out of limits
+		if (LowerLimit < AllowedLowerLim || UpperLimit > AllowedUpperLim)
+		{
+			DebugNum1.put_Caption(L"Limits for Measurement Run Out of Bounds");
+			std::vector<float> Results = { 0,0,0,0 };
+			Error = true;
+			return Results;
+
+		}
+
+
+		MoveActuatorToPosition(AxisIndex, PositionList[0]); //Move motor to the lowest position
+		Sleep(2);
+		for (long i = 0; i < NumberOfPoints; i++)
+		{
+			MoveActuatorToPosition(AxisIndex, PositionList[i]); //Go to position, take a voltage measurement, save the coupling efficiency to EfficiencyList and go to next point. 
+			TempVoltList = GetVoltageValues();
+			EfficiencyList[i] = TempVoltList[2];
+
+		}
+
+
+		std::string FolderStartString = "OutputVectors//Itteration";
+		std::string FolderAppendage = std::to_string(Itterator);
+		std::string FolderAppendedString = FolderStartString + FolderAppendage;
+		const char* FolderDirChar = FolderAppendedString.c_str();
+		_mkdir(FolderDirChar); //create new folder for the Position and Efficiency Lists. This does noch check if the folder already exists, as creating it a second time does nothing
+
+		std::string FileTitlePosition = "Position";
+		std::string FileTitelEfficiency = "Efficiency";
+
+		SaveToFile(PositionList, FolderDirChar, FileTitlePosition + AxisString); //Save the Position and Efficiency Lists to .txt files, with the names of the Axis and the itteration number added
+		SaveToFile(EfficiencyList, FolderDirChar, FileTitelEfficiency + AxisString);
+
+
+
+		auto Maximum = std::max_element(std::begin(EfficiencyList), std::end(EfficiencyList)); //Gets the highest coupling efficiency value
+		std::vector<float> Results(4);
+		std::vector<float> PlateauResults;
+		PlateauResults = DetectPlateau(EfficiencyList, PositionList, AxisIndex);
+		Results[0] = PlateauResults[0];
+		Results[1] = PlateauResults[1];
+		Results[2] = PlateauResults[2];
+		Results[3] = *Maximum;
+
+
+		DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(Results[0])));
+		DebugNum2.put_Caption(StringToLPCTSTR(std::to_string(Results[1])));
+		DebugNum3.put_Caption(StringToLPCTSTR(std::to_string(Results[3])));
 		return Results;
-
-	}
-
-
-	MoveActuatorToPosition(AxisIndex, PositionList[0]); //Move motor to the lowest position
-	Sleep(2);
-	for (long i = 0; i < NumberOfPoints; i++) 
-	{
-		MoveActuatorToPosition(AxisIndex, PositionList[i]); //Go to position, take a voltage measurement, save the coupling efficiency to EfficiencyList and go to next point. 
-		TempVoltList = GetVoltageValues();
-		EfficiencyList[i] = TempVoltList[2];
-
 	}
 	
-
-	std::string FolderStartString = "OutputVectors//Itteration";
-	std::string FolderAppendage = std::to_string(Itterator);
-	std::string FolderAppendedString = FolderStartString + FolderAppendage;
-	const char* FolderDirChar = FolderAppendedString.c_str();
-	_mkdir(FolderDirChar); //create new folder for the Position and Efficiency Lists. This does noch check if the folder already exists, as creating it a second time does nothing
-
-	std::string FileTitlePosition = "Position";
-	std::string FileTitelEfficiency = "Efficiency";
-
-	SaveToFile(PositionList, FolderDirChar, FileTitlePosition + AxisString); //Save the Position and Efficiency Lists to .txt files, with the names of the Axis and the itteration number added
-	SaveToFile(EfficiencyList, FolderDirChar, FileTitelEfficiency + AxisString);
-	
-
-
-	auto Maximum = std::max_element(std::begin(EfficiencyList), std::end(EfficiencyList)); //Gets the highest coupling efficiency value
-	std::vector<float> Results(4);
-	std::vector<float> PlateauResults;
-	PlateauResults = DetectPlateau(EfficiencyList, PositionList,AxisIndex);
-	Results[0] = PlateauResults[0];
-	Results[1] = PlateauResults[1];
-	Results[2] = PlateauResults[2];
-	Results[3] = *Maximum;
-
-
-	DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(Results[0])));
-	DebugNum2.put_Caption(StringToLPCTSTR(std::to_string(Results[1])));
-	DebugNum3.put_Caption(StringToLPCTSTR(std::to_string(Results[3])));
-	return Results;
-}
 
 
 
