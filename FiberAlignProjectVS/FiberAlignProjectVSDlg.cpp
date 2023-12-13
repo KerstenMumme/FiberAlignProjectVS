@@ -153,11 +153,25 @@ long ChanID = 0; //Channel ID is used by Thorlabs for their two Channel units, a
 
 
 struct LimitStructs{ //Struct for Actuator Limits
-	float Lower;	//Setting the physical boundries of the stage, to ensure that the stepper motors do not crash into the housing of the stage,
-					//float MaxPosX = 3.8;// Damaging both parts 
+					//Setting the physical boundries of the stage, to ensure that the stepper motors do not crash into the housing of the stage,
+	float Lower;	//float MaxPosX = 3.8;// Damaging both parts 
 	float Upper;
-
 };
+
+struct ActuatorPositionStructs {	//Struct for Actuator Position
+			
+	float Stepper;
+	float Piezo;
+};
+
+ActuatorPositionStructs XAxisPositionStruct;
+ActuatorPositionStructs YAxisPositionStruct;
+ActuatorPositionStructs ZAxisPositionStruct;
+ActuatorPositionStructs GonioAxisPositionStruct;
+								//Tracking the position of the actuators
+ActuatorPositionStructs PositionArray[4] = { XAxisPositionStruct, YAxisPositionStruct, ZAxisPositionStruct, GonioAxisPositionStruct };
+
+
 
 const struct LimitStructs XLimits = { -1, 3.8 };
 const struct LimitStructs YLimits = { -1, 3.8 };
@@ -186,14 +200,6 @@ float ImprovementLimit = 0.02; //Stops the Peak finding process if 1 - (NewCoupl
 std::vector<float> Optimum = {0,0,0,0}; //Used for the return to Optimum button
 
 
-float XStepperPosition = 1; //Used to keep tracks of the stepper positions
-float YStepperPosition = 1;
-float ZStepperPosition = 1;
-float GonioStepperPosition = 0;
-
-float XPiezoPosition = 0; //Used to keep tracks of the piezo positions
-float YPiezoPosition = 0;
-float ZPiezoPosition = 0;
 
 
 std::vector<float> PeakCouplingEfficiencyX(MaxNumberOfItteration); //Used to track the coupling efficiency of the axis over itterations
@@ -538,9 +544,11 @@ float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Posi
 	}
 
 	switch (AxisIndex) {
-	case 0: {	
+	case 0: {	    
+		 
 
-		XStepperPosition = Position; //Kept for future changes, to enable the piezos to also be moved
+
+		PositionArray[AxisIndex].Stepper = Position; //Kept for future changes, to enable the piezos to also be moved
 		StepperX.SetAbsMovePos(ChanID, StepperCorrection(AxisIndex, Position));
 		StepperX.MoveAbsolute(ChanID, true); //the second argument of the MoveAbsolute function depicts the time when the method returns
 											// true means that it returns once the movement is completed, false directly after the movement
@@ -550,14 +558,14 @@ float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Posi
 
 	case 1: {
 
-		YStepperPosition = Position;
+		PositionArray[AxisIndex].Stepper = Position;
 		StepperY.SetAbsMovePos(ChanID, StepperCorrection(AxisIndex, Position));
 		StepperY.MoveAbsolute(ChanID, true);
 		break;
 	}
 	case 2: {
 
-		ZStepperPosition = Position;
+		PositionArray[AxisIndex].Stepper = Position;
 		StepperZ.SetAbsMovePos(ChanID, StepperCorrection(AxisIndex, Position));
 		StepperZ.MoveAbsolute(ChanID, true);		
 
@@ -565,7 +573,7 @@ float CFiberAlignProjectVSDlg::MoveActuatorToPosition(long AxisIndex, float Posi
 	}
 	case 3: {
 
-		GonioStepperPosition = Position;
+		PositionArray[AxisIndex].Stepper = Position;
 		StepperGonio.SetAbsMovePos(ChanID,GonioAngleToLength(Position));
 		StepperGonio.MoveAbsolute(ChanID, true);
 
@@ -837,10 +845,10 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 		if (i >= MinNumberOfItteration && StopLoop) //Check if the ImprovementLimit is met
 		{
 			DebugNum2.put_Caption(L"Stopped Peak finding because of StopLoop, not enough improvements");
-			Optimum[0] = XStepperPosition; //The Optimum Prameter are written to the Optimum List, enabling the user to use the 
-			Optimum[1] = YStepperPosition; //return to Optimum Button and the Relative Measurement function
-			Optimum[2] = ZStepperPosition;
-			Optimum[3] = GonioStepperPosition;
+			Optimum[0] = PositionArray[0].Stepper; //The Optimum Prameter are written to the Optimum List, enabling the user to use the 
+			Optimum[1] = PositionArray[1].Stepper; //return to Optimum Button and the Relative Measurement function
+			Optimum[2] = PositionArray[2].Stepper;
+			Optimum[3] = PositionArray[3].Stepper;
 			DebugNum1.put_Caption(L"Peak Found! ");
 
 			break;
@@ -853,8 +861,8 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 			case 0: {
 				if (i == 0) //The first itteration needs initial values for the lower and upper limit. This is in this case the entire measurement range, but could also be made smaller, if the 
 				{			// region where the coupling occurs is already somewhat known
-					LowerMeasurementLimit = XStepperPosition - 0.5;
-					UpperMeasurementLimit = XStepperPosition + 0.5;
+					LowerMeasurementLimit = PositionArray[0].Stepper - 0.5;
+					UpperMeasurementLimit = PositionArray[0].Stepper + 0.5;
 				}
 				else {
 					LowerMeasurementLimit = XLowerLimit[i - 1];
@@ -881,8 +889,8 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 				if (i == 0)
 				{
-					LowerMeasurementLimit = YStepperPosition - 0.3;
-					UpperMeasurementLimit = YStepperPosition + 0.3;
+					LowerMeasurementLimit = PositionArray[1].Stepper - 0.3;
+					UpperMeasurementLimit = PositionArray[1].Stepper + 0.3;
 
 				}
 				else {
@@ -910,8 +918,8 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 				if (i == 0)
 				{
-					LowerMeasurementLimit = ZStepperPosition - 0.3;
-					UpperMeasurementLimit = XStepperPosition + 0.3;
+					LowerMeasurementLimit = PositionArray[2].Stepper - 0.3;
+					UpperMeasurementLimit = PositionArray[2].Stepper + 0.3;
 				}
 				else {
 					LowerMeasurementLimit = ZLowerLimit[i - 1];
@@ -940,8 +948,8 @@ bool CFiberAlignProjectVSDlg::ClickCommandbutton1()
 
 				if (i == 0)
 				{
-					LowerMeasurementLimit = GonioStepperPosition - 1;
-					UpperMeasurementLimit = GonioStepperPosition + 1;
+					LowerMeasurementLimit = PositionArray[3].Stepper - 1;
+					UpperMeasurementLimit = PositionArray[3].Stepper + 1;
 				}
 				else {
 					LowerMeasurementLimit = GonioLowerLimit[i - 1];
@@ -1326,7 +1334,7 @@ void CFiberAlignProjectVSDlg::ClickCommandbutton7() {
 	int TestIndex = 3;
 
 	
-	DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(LimitArray[TestIndex].Lower)));
+	DebugNum1.put_Caption(StringToLPCTSTR(std::to_string(PositionArray[1].Stepper)));
 
 }
 
